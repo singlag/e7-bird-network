@@ -95,11 +95,16 @@ def sampling_plan(info: SourceInfo, per_second: float, max_frames: int | None) -
     if info.kind == "image":
         return 1, 1
     fps = float(info.fps or DEFAULT_FPS)
-    stride = max(1, int(round(fps * per_second)))
+    # stride in source frames: sampling `per_second` frames per source second
+    # means every `fps / per_second`-th frame (25 fps at 2/s -> every 12th).
+    stride = max(1, int(round(fps / max(float(per_second), 0.01))))
     cap = max_frames if max_frames is not None else default_max_frames(fps)
-    available = math.ceil((info.duration or 0.0) / per_second) if info.duration else 0
-    if available == 0:
-        available = 1
+    # Sampling `per_second` frames per source second gives duration * per_second
+    # samples, never more than the frames that survive the stride.
+    seconds = float(info.duration or 0.0)
+    available = math.ceil(seconds * max(float(per_second), 0.01)) if seconds > 0 else 1
+    if info.total_frames:
+        available = min(available, max(1, math.ceil(info.total_frames / stride)))
     return stride, max(1, min(cap, available))
 
 

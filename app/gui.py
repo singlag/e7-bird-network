@@ -198,7 +198,7 @@ class App(tk.Tk):
         cap = self.max_frames_var.get() or None
         stride, planned = frames_module.sampling_plan(self.info, per_second, cap)
         self.stage_caption.config(
-            text=(f"預覽：影片第 0 幀。取樣計劃：每 {per_second} 秒取 1 幀（stride {stride}），"
+            text=(f"預覽：影片第 0 幀。取樣計劃：每秒取 {per_second} 幀（stride {stride}），"
                   f"最多處理 {planned} 幀（cap = min(60, fps)）")
         )
 

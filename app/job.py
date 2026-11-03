@@ -62,7 +62,10 @@ def run_job(
 
     info = frames_module.probe(source_path)
     stride, planned = frames_module.sampling_plan(info, per_second, max_frames)
-    available = max(1, math.ceil((info.duration or 0.0) / per_second)) if info.kind == "video" else 1
+    available = (
+        max(1, math.ceil(float(info.duration or 0.0) * max(float(per_second), 0.01)))
+        if info.kind == "video" else 1
+    )
     truncated = info.kind == "video" and planned < available
     emit(
         progress,
@@ -176,7 +179,8 @@ def run_job(
 
     video_export = None
     if info.kind == "video" and export_video and annotated_files:
-        fps = float(video_fps or (1.0 / max(per_second, 0.1)))
+        # Playing sampled frames at `per_second` fps reproduces source pacing.
+        fps = float(video_fps or max(float(per_second), 0.1))
         video_path = output_dir / "annotated.mp4"
         from PIL import Image
 
@@ -197,7 +201,7 @@ def run_job(
         "fps": info.fps,
         "duration": info.duration,
         "sampling": {"per_second": per_second, "stride_frames": stride, "planned": planned, "available": available,
-                     "truncated_to_first_seconds": planned * per_second if info.kind == "video" else None},
+                     "truncated_to_first_seconds": planned / max(float(per_second), 0.01) if info.kind == "video" else None},
         "processed_frames": processed,
         "detections_total": detections_total,
         "network_seconds_total": total_infer,

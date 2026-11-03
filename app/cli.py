@@ -31,7 +31,7 @@ def parse_args(argv=None):
     parser.add_argument("--save-heads", action="store_true", help="write fine/coarse head npz per frame")
     parser.add_argument("--save-frames", action="store_true", help="write an annotated PNG for every sampled frame")
     parser.add_argument("--no-video", action="store_true", help="skip annotated.mp4 for video input")
-    parser.add_argument("--video-fps", type=float, help="annotated.mp4 frame rate (default: 1/per-second)")
+    parser.add_argument("--video-fps", type=float, help="annotated.mp4 frame rate (default: same as --per-second)")
     return parser.parse_args(argv)
 
 
