@@ -1,0 +1,10 @@
+# GUI / CLI extras on top of the model requirements (see ../requirements.txt).
+#
+# Install both, in one go:
+#   Windows:  powershell -ExecutionPolicy Bypass -File app\setup_windows.ps1
+#   Linux:    python3 -m pip install -r requirements.txt -r app/requirements.txt \
+#               --extra-index-url https://download.pytorch.org/whl/cpu
+#
+# imageio-ffmpeg bundles the ffmpeg binary for both Windows and Linux, so video
+# input/output needs nothing extra from the user.
+imageio-ffmpeg==0.8.1
