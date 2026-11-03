@@ -1,81 +1,83 @@
-# PAGED — GUI 逐場 storyboard（俾你逐場 review）
+# PAGED — GUI 逐場 storyboard v2（對齊已實裝嘅版面）
 
-單視窗 Tkinter，預設 1180×780，可放大。版面：
+單視窗 Tkinter，title 固定為 **`E7 object detection simulator - GUI`**（中／英都係呢個名），
+預設 1500×840，可放大，min 1040×660。版面：
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│ [選擇輸入…]  input: photo.jpg (1200×900, 4:3)   Model: [E7 Bird ▾]  [執行] │  ← toolbar
-├──────────────┬────────────────────────────────────────────────────────────┤
-│ 左欄 (300px) │                預覽 canvas（最大區塊）                      │
-│              │   原圖 / 當前影格                                           │
-│ 輸入資料     │   ┌ ─ ─ ─ 裁剪範圍（虛線）─ ─ ─ ┐                          │
-│  尺寸/比例   │   │   ▭ 識別框 + score/slot 標籤 │                          │
-│  裁剪方式    │   └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘                          │
-│  裁剪區      │                                                            │
-│              │                                                            │
-│ Model 資料   │                                                            │
-│  解碼器狀態  │                                                            │
-│              ├────────────────────────────────────────────────────────────┤
-│ 影片取樣     │ 偵測結果表：cx cy w h  score  slot   （當前影格）           │
-│  每N幀/每秒   │                                                            │
-│  最大幀數     │                                                            │
-│              │                                                            │
-│ 顯示選項     │                                                            │
-│  畫框/裁剪框 │                                                            │
-│ 匯出         │                                                            │
-│  mp4 / CSV   │                                                            │
-├──────────────┴────────────────────────────────────────────────────────────┤
-│ 進度 ▓▓▓▓░░░░ 影格 3/12 · 本幀 112.4 s        [取消]                       │
-│ log: model 載入 2.1 s · torch 2.15.0+cpu · decoder=native(.so) · …        │
-└───────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ 左欄 (控制)                    │  預覽 canvas          │ 5 · 偵測框 list box     │
+│  語言 [中文 ▾]                 │   原圖 / 當前影格     │  序 類別 等級 機率       │
+│  1 · 輸入   [選擇輸入 …]       │   ┌ ─ ─ 裁剪虛線 ─ ┐  │  token slot 框          │
+│           filename · 1200×900  │   │ ▭ 框 + 標籤      │  ──────────────────      │
+│  2 · Model  [E7 Bird ▾]        │   │   選咗嘅框 100%  │  ▸ 0  0  974 0.874       │
+│  3 · 設定   取樣/秒, 最大幀數   │   │   其他位置轉淡   │    1  4  991 0.612       │
+│           執行緒, Decoder       │   └ ─ ─ ─ ─ ─ ─ ─ ┘  │    2  2  898 0.431       │
+│           ☑ 每幀PNG ☑ heads     │                        │  [清除選擇]            │
+│           ☑ 標註影片 .mp4       │                        │  已選 #1：框內 100%…   │
+│           輸出目錄 [____]       │                        │                        │
+│  4 · 執行   [執行] [取消]       │                        │                        │
+│           進度 ▓▓▓▓░░░░         │                        │                        │
+│           status 一行           │                        │                        │
+│           log (9 行)            │                        │                        │
+├──────────────────────────────────┴───────────────────────────────────────────────┤
+│ caption：預覽：影片第 0 幀。取樣計劃：每秒取 2 幀（stride 12），最多 3 幀        │
+└──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## S0 剛啟動（未選檔）
-- canvas：提示「未選擇輸入。按『選擇輸入…』揀相或片。」
-- Model 下拉已預選 `E7 Bird Network (resource744)`；`[執行]` disabled
-- log：torch / numpy 版本、解碼器狀態（Windows DLL / Linux .so / Python 移植）
+- canvas 空白、caption「準備好 / ready — 選擇一個圖片或影片檔案」；`[取消]` disabled
+- log：未執行前係空白（版本 / decoder 狀態喺按「執行」先 log，因為 model 係 lazy 載入）
+- 「語言」下拉：中文 / English
 
 ## S1 已選圖片
-- canvas：顯示**原圖**（fit to canvas）+ **裁剪範圍虛線框**
-- 左欄顯示：原始尺寸與比例、裁剪方式（削高度／削寬度）、裁剪區像素、最終送模型嘅 384×256
-- `[執行]` enabled；偵測表空白
+- canvas 顯示**原圖**（fit canvas）+ 裁剪虛線框；caption「預覽：選了的圖片」
+- input label：檔名 · 靜止圖片 · 尺寸
+- status 行顯示裁剪描述（削高度／削寬度、裁剪區、送模型 384×256）
+- 輸出目錄自動填 `<input stem>-e7-out`
 
 ## S2 已選影片
-- canvas：顯示**第一幀** + 裁剪虛線框
-- 左欄顯示：時長、fps、總幀數、取樣設定（預設每秒 1 幀、上限 60 幀），可改
-- log：「影片：N 幀將被處理（每 M 幀取一幀），預計每幀 ~X s」
+- canvas 顯示**第一幀**；caption 寫明取樣計劃（每秒取幾多幀、stride、最多幾多幀、cap = min(60, fps)）
+- 改「取樣/秒」或「最大幀數」會即刻更新 caption 嘅預計
 
 ## S3 執行中
-- 進度列：`影格 i / M`，本幀耗時；`[取消]` enabled（按下後當前幀跑完就停）
-- canvas：顯示 worker 目前送緊嘅影格；已完成影格嘅框即刻疊加
-- 偵測表隨每幀完成而更新
-- UI 唔凍結（推論喺 worker thread）
+- worker thread 跑推論，UI 唔凍結；進度条 maximum = 將處理幀數
+- 每幀完成：canvas 換成嗰幀 + 框 + 標籤（`cls · rank · p · tok`）、status 行顯示
+  `幀 i · t=秒 · done/total · 推論秒 · 偵測 n 框 · crop mode`、list box 填返嗰幀嘅 row
+- `[取消]` 喺當前幀跑完之後停，log「已取消 / cancelled」
 
-## S4 完成（圖片）
-- canvas：原圖 + 裁剪虛線框 + 全部識別框（紅框 + `slot: score` 標籤）
-- 偵測表：每條 record `[cx, cy, w, h, score, slot]`（原圖像素座標）；若 0 條，清楚寫「0 個候選框（可能因為 objgate/scoregate 閘值）」
-- log：模型秒數、解碼器 status、輸出檔路徑
+## S4 完成（圖片／影片）
+- status：`{processed}/{planned} 幀 · {detections} 框 · 每幀 {s}s · 輸出 {dir}`
+  影片加 `標註影片：path`；被 cap 截斷會註明
+- log：`完成：N 幀，M 個偵測框，T 秒` + `輸出：detections.csv …`
+- list box 每 row：`序 (行序) | 類別 | 等級(0–1000 rank) | 機率(0–1 combined) | token | slot | 框座標`
 
-## S5 完成（影片）
-- canvas：標註後嘅影格 + timeline（上一幀／下一幀／滑桿）
-- 偵測表：當前影格嘅 records；另可睇全部影格彙總
-- log：總耗時、匯出檔（`annotated.mp4`、`detections.csv`、`frames/`）
+## S5 選偵測框（重疊框逐個睇）
+- click list box row（或 ↑/↓）：嗰個框變黃色加粗、**框內畫面 100% 原樣**、
+  **其他位置全部混合向灰色（保留 35% 原圖）**；其他框變淡紅
+- 「清除選擇」：全部框恢复正常顯示、冇淡化
+- 冇選框時新影格唔會自動選（保持你原本嘅選取，直到超出框數先清）
 
-## S6 錯誤
-- 紅字 + 原因 + 建議：
-  - torch 冇裝／版本唔符 → 畀 `pip install -r requirements-app.txt` 指示
-  - 解碼器唔支援呢個平台 → 提示用 `build_decoder.sh/.ps1` 或會自動轉用 Python 移植版
-  - 影片解碼失敗／檔案唔支援 → 列支援格式
-  - 網路輸出非 finite（原 network.py 會 raise）→ 顯示原錯誤
+## S6 語言切換
+- 「語言」改 English → 全部 label、button、list 頭、status、caption、log 後續行都轉英文
+- 已經選咗嘅偵測框、canvas、設定、舊 log 內容全部保留（重建 widget，唔清 state）
+- 再轉返中文一樣
 
-## S7 匯出
-- 輸出目錄由用戶揀（預設 `<input 同目錄>/e7-out/`），永遠唔寫入 package 目錄
-- 圖片：`annotated.png`、`heads.npz`、`result.json`、`detections.csv`
-- 影片：`annotated.mp4`、`detections.csv`、`frames/NNNN.png`（可選）
+## S7 錯誤
+- 讀取輸入失敗 → status「無法讀取輸入：…」；預覽失敗 → status 顯示原因
+- 執行失敗 → status「失敗：…」+ log 完整 traceback
+- 冇選檔按執行 → status「請先選擇輸入檔案」
 
-## 逐場驗收準則
-- S1/S2：裁剪數學正確（4:3→削高度、16:9→削寬度、已有 3:2→唔裁剪）
-- S3：取消喺 1 秒內反應；UI 無凍結
-- S4：框位置同原圖對得上（用造嘅 head 做已知座標測試，座標誤差 ≤ 1 px）
-- S5：mp4 播到、框逐幀跟住影格
-- 全部：原 package `verify.py` 依然 pass（我冇改原檔）
+## S8 匯出
+- 圖片：`annotated.png`、`heads-NNNNN.npz`（可選）、`detections.csv`、`result.json`
+- 影片：每幀 PNG（可選）、`annotated.mp4`（可選）、`detections.csv`、`result.json`
+- `detections.csv` 頭 13 行係 `#` 註解，講清楚：`rank_score` 係 0–1000 校準**等級**（唔係機率，
+  只能喺同一 slot 之內比較）、`rank_order` 係行序、`token/slot` 話畤你邊個 anchor 家族＋邊條曲線、
+  `combined_probability` = sigmoid(class)*objectness（先係可比較嘅 0–1 可信度）
+
+## 逐場驗收準則（已跑嘅自動化驗證）
+- 裁剪數學：`app/tests/test_crop.py` ✓
+- 取樣 stride／cap：`app/tests/test_sampling.py` ✓
+- 等級／token／slot／機率 replay：`app/tests/test_score.py` ✓（用 crafted head 逐 cell 對返 decoder 自己嘅 candidate）
+- title、語言切換、list box、選框 100%／其他轉淡：`app/tests/test_gui.py` ✓ + `app/gui.py --selftest` ✓
+- port vs native decoder：`app/tests/test_decoder_parity.py`
+- 原 package `verify.py` / `verify_integrity.py` 依然 pass（冇改原檔）

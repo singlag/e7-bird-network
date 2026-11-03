@@ -52,6 +52,8 @@ class E7BirdModel:
         self.decoder_mode = decoder_mode
         self.network: object = None
         self.decoder: object = None
+        self._ipu: bytes | None = None
+        self._score_table: object = None
 
     def load(self, log=lambda message: None) -> None:
         if self.network is not None:
@@ -64,7 +66,8 @@ class E7BirdModel:
         from network import E7BirdNetwork
 
         self.network = E7BirdNetwork(self.threads)
-        self.decoder = load_decoder(REPO_ROOT, consumer_table(), self.decoder_mode)
+        self._ipu = consumer_table()
+        self.decoder = load_decoder(REPO_ROOT, self._ipu, self.decoder_mode)
         log(f"模型載入完成（{time.monotonic() - started:.1f} s）· decoder={self.decoder.backend}")
 
     def encode(self, image) -> tuple:
@@ -89,6 +92,18 @@ class E7BirdModel:
 
     def decode(self, head_buffer: bytes) -> dict:
         return self.decoder.consume(head_buffer)
+
+    def score_table(self):
+        """Consumer-table view used to recover token / probability / rank per row.
+
+        Independent of which decoder backend ran: the arithmetic it exposes is the
+        reference arithmetic both backends implement.
+        """
+        from decoder_port import PythonDecoder
+
+        if self._score_table is None:
+            self._score_table = PythonDecoder(self._ipu or consumer_table())
+        return self._score_table
 
     def status(self) -> dict:
         import torch

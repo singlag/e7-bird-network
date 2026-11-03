@@ -13,25 +13,34 @@ Fork 已建：`singlag/e7-bird-network`（https://github.com/singlag/e7-bird-net
 | 3 顯示所選 input | 右側大 canvas：靜圖顯示原圖；影片顯示當前幀 |
 | 4 Model 選擇 | 下拉選單， registry 目前只有 `E7 Bird Network (resource744)`，預留擴充介面 |
 | 5 執行 | 背景 thread 跑 inference + decode，進度列 + 可取消 |
-| 6 顯示 model output + 識別框 | 同一個 canvas 疊加 detection 框（映射返原圖座標），畫裁剪範圍虛線框，下面列 detection 表 |
+| 6 顯示 model output + 識別框 | 同一個 canvas 疊加 detection 框（映射返原圖像素）+ 裁剪虛線框 |
 | 7 3:2 自動裁剪 | center crop 到 1.5 aspect（優先削高度），再 bilinear resize 到 384×256 |
+| 8 可信度唔再俾 0–1000 誤導 | `score.py` 由 head buffer replay 返 decoder 自己嘅 per-cell gates：行序 `rank_order`、`token`、`slot`、`combined_probability`（sigmoid(cls)·objectness）、`objectness`。CSV、list box、框標籤三處都帶；README 註明 `rank_score` 係 24 條曲線校準出嘅 0–1000 **等級**，只能同 slot 之內比較 |
+| 9 重疊偵測框逐個睇 | canvas 右側 `ttk.Treeview`（序／類別／等級／機率／token／slot／框）；揀咗嘅 row：該框 100% + 框內像素原樣、其他位置混合向灰（留 35%），其他框變淡；「清除選擇」恢复 |
+| 10 英文選擇 | `gui.py` 內 `I18N_EN` / `t()`（繁中＋英文兩套 key）；「語言」下拉重建 widget，state／選框／log 保留 |
+| 11 視窗 title | `E7 object detection simulator - GUI`（中／英一致） |
 
 ## 新檔案
 
 ```
 app/
   pipeline.py        # 幾何：3:2 center crop → 384×256 → u8 CHW[3,256,384]；框座標映射回原圖
-  model_registry.py  # 模型註冊表（目前只有 E7 bird；介面目標：load()/infer()/decode()）
-  e7model.py         # E7 bird 模型 adapter：載入原 package network.py + 解碼器
+  model_registry.py  # 模型註冊表（目前只有 E7 bird；介面目標：load()/infer()/decode()/score_table()）
+  e7model.py         # E7 bird 模型 adapter：載入原 package network.py + 解碼器 + score_table accessor
   native_decoder.py  # Windows 用 bundled wide-reference.dll；Linux/macOS 用本地 build 嘅 .so/.dylib
   decoder_port.py    # 純 Python(numpy float32) 移植版，跨平台 fallback
-  frames.py          # 影格來源：靜圖 / 影片（imageio-ffmpeg）；取樣策略
-  e7gui.py           # Tkinter GUI（主檔）
+  score.py           # 由 head buffer replay per-cell gates：rank_order / token / slot / combined_probability
+  draw.py            # PIL 畫框、裁剪虛線框、dim_outside（選框之外混合向灰）
+  frames.py          # 影格來源：靜圖 / 影片（imageio-ffmpeg）；取樣策略 plan_sampling()
+  gui.py             # Tkinter GUI（主檔，含 I18N_EN / t() 語言切換、偵測框 list box、`--selftest`）
+  job.py             # 一次 run 嘅編排：infer → decode → score → CSV/PNG/mp4
   cli.py             # 無 GUI 同款 pipeline，用嚟 test / batch
   build_decoder.sh   # Linux/macOS 由 wide_reference.c + qsort-reference.c build 共享庫
   build_decoder.ps1  # Windows 用 gcc/MinGW build DLL
+  setup_windows.ps1  # Windows 環境一次性 setup（venv + requirements + DLL）
   README.md
-  requirements-app.txt
+  requirements.txt
+  tests/             # test_crop / test_sampling / test_score / test_gui / test_decoder_parity / test_e2e_fixture
 ```
 
 ## 實作要點（決定咗嘅技術細節）

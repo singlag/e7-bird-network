@@ -13,6 +13,9 @@ untouched, so `verify_integrity.py` and `verify.py` still pass.
 | 4. 選擇 Model | Model dropdown fed by `model_registry.py` (E7 bird model today) |
 | 5. 執行 | 「執行」/「取消」 (`Ctrl+R`), worker thread, progress bar, log |
 | 6. 顯示 model output + 識別目標框 | canvas redraws each processed frame with detection boxes plus the dashed 3:2 crop rectangle |
+| 加：偵測框 list box | `ttk.Treeview` beside the preview — 序 / 類別 / 等級 / 機率 / token / slot / 框.  Boxes overlap, so one row can be selected: that box and the pixels inside it stay at 100%, everything else fades toward grey (`draw.dim_outside`).  「清除選擇」 shows all boxes normally again. |
+| 加：token / combined probability / 行序 | `score.py` replays the decoder's per-cell gates off the head buffer, so every row carries `rank_order` (行序), `token`, `slot`, `combined_probability` and `objectness` — on the box labels, in the list box and in `detections.csv`.  The 0–1000 `rank_score` is a calibrated rank off one of 24 curves, not a probability, and is only comparable inside one slot. |
+| 加：語言 / Language | 「語言」 dropdown (中文 / English) relabels the whole window in place; settings, boxes and log survive the switch.  Window title is `E7 object detection simulator - GUI` in both languages. |
 
 Non-3:2 input is centre-cropped to 3:2 **before** the 384×256 resize: height is
 trimmed when the aspect is ≤ 1.5, otherwise width is trimmed (you cannot add
@@ -63,11 +66,21 @@ which library is used.
 - Decoder — `auto` (native library if available, else port), `native`, `port`.
 - 儲存每幀 PNG / 儲存 heads (.npz) / 輸出標註影片 .mp4.
 - 輸出目錄 — defaults to `<input-name>-e7-out` next to the input file.
+- 語言 — 中文 / English; the window is rebuilt with the new labels and the
+  current settings, boxes and log are kept.
+- 5 · 偵測框 — click a row to spotlight that box (its pixels stay at 100%, the
+  rest of the frame fades); the row shows rank / class / rank_score /
+  combined probability / token / slot / box geometry.  Keyboard: ↑/↓ through
+  rows, 「清除選擇」 to show all boxes at full strength.
 
 Outputs: `annotated.png` (image input), per-frame PNGs (video, optional),
-`annotated.mp4` (video, optional, drawn boxes baked in), `detections.csv`,
-`heads-NNNNN.npz` (optional), `result.json` (crop, sampling plan, timings,
-decoder status).
+`annotated.mp4` (video, optional, drawn boxes baked in), `detections.csv`
+(`rank_order`, `cx/cy/w/h` in 384×256 model space, `rank_score`, `cls`,
+`token`, `slot`, `combined_probability`, `objectness`, the same box mapped to
+source pixels, `crop_mode`, `decoder_status`), `heads-NNNNN.npz` (optional),
+`result.json` (crop, sampling plan, timings, decoder status).  The CSV starts
+with `#` comment lines explaining each column — readers should skip rows whose
+first field begins with `#`.
 
 ## CLI
 
@@ -83,10 +96,15 @@ python app/cli.py --input clip.mp4 --decoder port --output out/
 
 ```bash
 python app/tests/test_crop.py            # 3:2 crop rules, fast
+python app/tests/test_sampling.py        # stride / cap rules for video sampling
+python app/tests/test_score.py           # rank / token / slot / combined probability replay
+python app/tests/test_gui.py             # window title, language switch, box list, selected-box fade
 python app/tests/test_decoder_parity.py  # port vs native library, needs a built/ bundled library
 python app/tests/test_e2e_fixture.py     # fixture input -> network heads -> decoder (~3 min/fixture on CPU)
 python app/gui.py --selftest path/to/file   # builds the window and loads the file, then exits
 ```
+
+`test_gui.py` needs a display; it skips cleanly when Tkinter cannot open one.
 
 `test_decoder_parity.py` finds the library automatically (bundled DLL on
 Windows, `app/vendor/wide-reference.so|dylib` otherwise) or take

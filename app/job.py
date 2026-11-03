@@ -15,6 +15,7 @@ from typing import Callable, Optional
 import draw
 import frames as frames_module
 import pipeline
+import score
 
 
 @dataclass
@@ -102,8 +103,13 @@ def run_job(
         inference = model.infer(encoded, include_workspace=save_heads)
         report = model.decode(inference["head_buffer"])
         mapped = draw.map_records(report["records"], crop)
+        # token / slot / combined probability per row: the 6-field result row only
+        # carries the calibrated 0–1000 rank, which is not comparable across slots.
+        table_factory = getattr(model, "score_table", None)
+        scored = score.annotate(report, inference["head_buffer"], table_factory()) if table_factory else []
         display_scale = max(1.0, max(image.width, image.height) / 900.0)
-        annotated = draw.draw_overlay(image, mapped, crop, show_crop=True, show_labels=True, scale_for_display=display_scale)
+        annotated = draw.draw_overlay(image, mapped, crop, show_crop=True, show_labels=True,
+                                      scale_for_display=display_scale, scored=scored)
         total_infer += inference["seconds"]
         processed += 1
         detections_total += len(mapped)
@@ -136,6 +142,7 @@ def run_job(
                 "decoder_accepted": report["accepted"],
                 "decoder_backend": report["backend"],
                 "records_model_space": report["records"],
+                "records_scored": scored,
                 "boxes_source_pixels": [
                     {"cx": x, "cy": y, "w": w, "h": h, "score": s, "cls": c} for x, y, w, h, s, c in mapped
                 ],
@@ -152,8 +159,11 @@ def run_job(
             detections=len(mapped),
             decoder_status=report["status"],
             crop_mode=crop.mode,
+            crop={"x": crop.x, "y": crop.y, "width": crop.width, "height": crop.height, "mode": crop.mode},
             annotated=annotated,
+            raw=image,
             mapped=mapped,
+            scored=scored,
             report=report,
         )
 
@@ -162,16 +172,38 @@ def run_job(
     csv_path = output_dir / "detections.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
+        for line in (
+            "# E7 object detection output — cx/cy/w/h are on the model's native 384x256",
+            "# grid, cx/cy being the box centre; the *_source columns are those boxes",
+            "# mapped back onto the original input pixels.  rank_score is the decoder's",
+            "# 0–1000 value read off one of the 24 calibration curves: it is a calibrated",
+            "# rank, NOT a probability, and is only comparable between rows sharing the",
+            "# same slot.  rank_order is the row order (0 = strongest).  cls is the class",
+            "# id (0 bird, 1 person, 2 car, 3 bike, 4 airplane, 5 bird-with-wide-anchors);",
+            "# token/slot say which anchor family and calibration curve the winner came",
+            "# from; combined_probability is sigmoid(raw_class)*objectness — the quantity",
+            "# the curve is indexed by, i.e. the comparable 0–1 confidence — and",
+            "# objectness is the box's own objectness value.  cells_visited in result.json",
+            "# counts the head cells the decoder examined; it stops early once 32",
+            "# candidates exist, so it is not always 1056.",
+        ):
+            writer.writerow([line])
         writer.writerow(
-            ["frame_index", "frame_seconds", "cx_model", "cy_model", "w_model", "h_model", "score", "cls",
+            ["frame_index", "frame_seconds", "rank_order", "cx_model", "cy_model", "w_model", "h_model",
+             "rank_score", "cls", "token", "slot", "combined_probability", "objectness",
              "cx_source", "cy_source", "w_source", "h_source", "crop_mode", "decoder_status"]
         )
         for frame in per_frame:
             model_records = frame["records_model_space"]
             source_boxes = frame["boxes_source_pixels"]
-            for record, box in zip(model_records, source_boxes):
+            scored_rows = frame["records_scored"]
+            for row_index, (record, box) in enumerate(zip(model_records, source_boxes)):
+                detail = scored_rows[row_index] if row_index < len(scored_rows) else {}
                 writer.writerow(
-                    [frame["frame_index"], round(frame["seconds"], 3), *record,
+                    [frame["frame_index"], round(frame["seconds"], 3), row_index, *record,
+                     detail.get("token"), detail.get("slot"),
+                     round(detail["combined"], 6) if detail.get("combined") is not None else "",
+                     round(detail["objectness"], 6) if detail.get("objectness") is not None else "",
                      round(box["cx"], 2), round(box["cy"], 2), round(box["w"], 2), round(box["h"], 2),
                      frame["crop"]["mode"], frame["decoder_status"]]
                 )

@@ -3,9 +3,38 @@
 from pipeline import MODEL_HEIGHT, MODEL_WIDTH, Crop, model_to_source
 
 BOX_COLOR = (255, 60, 60)
+SELECT_COLOR = (255, 235, 90)
+DIM_BOX_COLOR = (150, 70, 70)
 CROP_COLOR = (255, 215, 0)
 TEXT_BACK = (255, 60, 60)
 TEXT_FORE = (255, 255, 255)
+FADE_COLOR = (128, 128, 128)         # what unreselected areas are blended toward
+DEFAULT_KEEP = 0.35                  # how much of the original survives outside the selected box
+
+
+def dim_outside(image, box, keep: float = DEFAULT_KEEP):
+    """Fade everything outside `box` (source-pixel centre/size), keeping `box` at 100%.
+
+    `keep` is how much of the original survives outside the box: 1.0 = no fade.
+    Blending toward a mid grey both drops saturation and lowers contrast, which
+    reads as a pale ("淡色") background rather than a shadow.
+    """
+    from PIL import Image
+
+    canvas = image.convert("RGB").copy()
+    if box is None or keep >= 1.0:
+        return canvas
+    x, y, w, h = box[0], box[1], box[2], box[3]
+    left = max(0, int(round(x - w / 2.0)))
+    top = max(0, int(round(y - h / 2.0)))
+    right = min(canvas.width, int(round(x + w / 2.0)))
+    bottom = min(canvas.height, int(round(y + h / 2.0)))
+    if right <= left or bottom <= top:
+        return canvas
+    faded = Image.blend(canvas, Image.new("RGB", canvas.size, FADE_COLOR), 1.0 - float(keep))
+    out = faded.copy()
+    out.paste(canvas.crop((left, top, right, bottom)), (left, top))
+    return out
 
 
 def _dashed_rectangle(draw, left, top, right, bottom, color, dash=10, gap=7, width=2):
@@ -42,11 +71,25 @@ def map_records(records, crop: Crop):
     return mapped
 
 
-def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, scale_for_display=None):
+def _label_text(cls: int, score: int, scored: dict | None) -> str:
+    """`cls 4 · rank 991 · p 0.87` — `rank` is the 0–1000 calibration rank, `p` the
+    uncalibrated combined probability, so boxes from different slots stay comparable."""
+    label = f"cls {cls} · rank {score}"
+    if scored and scored.get("combined") is not None:
+        label += f" · p {float(scored['combined']):.3f}"
+    if scored and scored.get("token") is not None:
+        label += f" · tok {scored['token']}"
+    return label
+
+
+def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, scale_for_display=None,
+                 highlight=None, scored=None):
     """Return a copy of `image` with the crop rectangle and boxes drawn on it.
 
     `scale_for_display` scales the drawn line widths / label fonts so an
-    enlarged preview stays legible.
+    enlarged preview stays legible.  `highlight` marks one box index as selected
+    (bright, thicker) and dims the rest; `scored` (from `score.annotate`) adds
+    probability / token to each label.
     """
     from PIL import ImageDraw
 
@@ -70,18 +113,25 @@ def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, sc
         )
 
     font = _load_font(max(12, int(round(14 * factor))))
-    for x, y, w, h, score, cls in mapped:
+    for index, (x, y, w, h, score, cls) in enumerate(mapped):
+        selected = highlight is not None and index == highlight
+        if highlight is None:
+            color, width = BOX_COLOR, box_width
+        else:
+            color = SELECT_COLOR if selected else DIM_BOX_COLOR
+            width = max(box_width, int(round(box_width * 1.6))) if selected else box_width
         left = x - w / 2.0
         top = y - h / 2.0
         right = x + w / 2.0
         bottom = y + h / 2.0
-        draw.rectangle([left, top, right, bottom], outline=BOX_COLOR, width=box_width)
+        draw.rectangle([left, top, right, bottom], outline=color, width=width)
         if not show_labels:
             continue
-        label = f"slot{cls} · {score}"
+        label = _label_text(cls, int(score), scored[index] if scored and index < len(scored) else None)
         box = draw.textbbox((left, top), label, font=font)
         text_height = box[3] - box[1] + 4
-        draw.rectangle([left, top - text_height, left + (box[2] - box[0]) + 6, top], fill=TEXT_BACK)
+        draw.rectangle([left, top - text_height, left + (box[2] - box[0]) + 6, top],
+                       fill=color if selected else TEXT_BACK)
         draw.text((left + 3, top - text_height + 1), label, fill=TEXT_FORE, font=font)
     return canvas
 
