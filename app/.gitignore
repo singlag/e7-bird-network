@@ -1,0 +1,4 @@
+vendor/
+*-e7-out/
+__pycache__/
+*.pyc

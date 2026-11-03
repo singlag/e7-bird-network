@@ -3,5 +3,3 @@ __pycache__/
 .venv/
 .local/
 wheelhouse/
-app/vendor/
-*-e7-out/
