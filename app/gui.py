@@ -347,14 +347,11 @@ class App(tk.Tk):
         ttk.Label(box_panel, text=self._t("section_boxes"), style="Heading.TLabel").pack(anchor="w")
         columns = ("rank", "cls", "score", "p", "token", "slot", "box")
         self.tree = ttk.Treeview(box_panel, columns=columns, show="headings", height=14, selectmode="browse")
-        headings = {
-            "rank": self._t("col_rank"), "cls": self._t("col_cls"), "score": self._t("col_score"),
-            "p": self._t("col_p"), "token": self._t("col_token"), "slot": self._t("col_slot"),
-            "box": self._t("col_box"),
-        }
         widths = {"rank": 30, "cls": 46, "score": 56, "p": 62, "token": 52, "slot": 40, "box": 116}
         for column in columns:
-            self.tree.heading(column, text=headings[column])
+            # clicking a heading sorts the list by that column (again = reverse)
+            self.tree.heading(column, text=self._heading_text(column),
+                              command=lambda column=column: self._sort_by_heading(column))
             self.tree.column(column, width=widths[column], anchor="center" if column != "box" else "w")
         self.tree.pack(fill="both", expand=False, pady=(4, 4))
         self.tree.bind("<<TreeviewSelect>>", self._tree_selected)
@@ -383,6 +380,10 @@ class App(tk.Tk):
     output_entry = None
     _output_dir_text = ""
     _after_id = None
+    _sort_column = None
+    _sort_descending = False
+    # columns whose first click should show the biggest values first
+    _SORT_FIRST_DESCENDING = {"rank": True, "score": True, "p": True, "box": True}
 
     def _rebuild_ui(self):
         if self.output_entry is not None:
@@ -496,6 +497,61 @@ class App(tk.Tk):
             self.tree.delete(*self.tree.get_children())
             self.selection_label.config(text=self._t("no_boxes"))
 
+    def _heading_text(self, column: str) -> str:
+        """Column heading, with a ▲/▼ marker while that column drives the order."""
+        base = self._t(f"col_{column}")
+        if self._sort_column != column:
+            return base
+        return base + (" ▼" if self._sort_descending else " ▲")
+
+    _COLUMN_INDEX = {"rank": 0, "cls": 1, "score": 2, "p": 3, "token": 4, "slot": 5, "box": 6}
+
+    def _sort_value(self, column: str, values):
+        """Numeric sort key for one row; rows with '-' (no score data) sort last.
+
+        The `box` column sorts by box area, which is what matters when several
+        overlapping boxes compete for the same object.
+        """
+        raw = values[self._COLUMN_INDEX[column]]
+        if column == "box":
+            try:
+                width, height = str(raw).split()[-1].split("x")
+                return int(width) * int(height)
+            except ValueError:
+                return 0
+        if column == "p":
+            try:
+                return float(raw)
+            except ValueError:
+                return -1.0
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return -1
+
+    def _sort_by_heading(self, column: str):
+        """Heading click: sort by that column; clicking it again reverses."""
+        if self._sort_column == column:
+            self._sort_descending = not self._sort_descending
+        else:
+            self._sort_column = column
+            self._sort_descending = bool(self._SORT_FIRST_DESCENDING.get(column, False))
+        self._apply_sort()
+        for other in self.tree["columns"]:
+            self.tree.heading(other, text=self._heading_text(other))
+
+    def _apply_sort(self):
+        """Reorder the existing rows; item ids stay tied to the box index, so the
+        selection keeps pointing at the same detection after sorting."""
+        column = self._sort_column
+        if column is None or not hasattr(self, "tree"):
+            return
+        items = list(self.tree.get_children())
+        items.sort(key=lambda iid: self._sort_value(column, self.tree.item(iid)["values"]),
+                   reverse=self._sort_descending)
+        for position, iid in enumerate(items):
+            self.tree.move(iid, "", position)
+
     def _fill_tree(self):
         if not hasattr(self, "tree"):
             return
@@ -513,6 +569,7 @@ class App(tk.Tk):
                     f"{int(x)},{int(y)} {int(w)}x{int(h)}",
                 ),
             )
+        self._apply_sort()      # keep the user's chosen order across refreshes
         if self._selected is not None:
             self.tree.selection_set(str(self._selected))
             self.selection_label.config(text=self._t("box_selected", index=self._selected))

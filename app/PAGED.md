@@ -50,11 +50,15 @@
   影片加 `標註影片：path`；被 cap 截斷會註明
 - log：`完成：N 幀，M 個偵測框，T 秒` + `輸出：detections.csv …`
 - list box 每 row：`序 (行序) | 類別 | 等級(0–1000 rank) | 機率(0–1 combined) | token | slot | 框座標`
+- click 任何 column 頭：成個 list 按嗰欄排序（數值排序，唔係文字）；再 click 同一欄就反轉；
+  嗰個頭顯示 ▲/▼。`序／等級／機率／框` 第一次 click 由大細排，`類別／token／slot` 由細大排；
+  `框` 欄按框面積排。排序只係改 row 順序，選取仍然跟返同一個偵測框
 
 ## S5 選偵測框（重疊框逐個睇）
 - click list box row（或 ↑/↓）：嗰個框變黃色加粗、**框內畫面 100% 原樣**、
-  **其他位置全部混合向灰色（保留 35% 原圖）**；其他框變淡紅
-- 「清除選擇」：全部框恢复正常顯示、冇淡化
+  **其他位置全部混合向灰色（保留 35% 原圖）**；**其他偵測框完全唔畫**（重疊時唔再爭位）
+- 框上面嘅 label 只有 `#序 · p 機率`；類別／等級／token／slot 睇 list box
+- 「清除選擇」：全部框恢復正常顯示、冇淡化
 - 冇選框時新影格唔會自動選（保持你原本嘅選取，直到超出框數先清）
 
 ## S6 語言切換
@@ -78,6 +82,7 @@
 - 裁剪數學：`app/tests/test_crop.py` ✓
 - 取樣 stride／cap：`app/tests/test_sampling.py` ✓
 - 等級／token／slot／機率 replay：`app/tests/test_score.py` ✓（用 crafted head 逐 cell 對返 decoder 自己嘅 candidate）
-- title、語言切換、list box、選框 100%／其他轉淡：`app/tests/test_gui.py` ✓ + `app/gui.py --selftest` ✓
+- title、語言切換、list box、選框 100%／其他轉淡／其他框唔畫、column 頭排序、短 label：
+  `app/tests/test_gui.py` ✓ + `app/gui.py --selftest` ✓
 - port vs native decoder：`app/tests/test_decoder_parity.py`
 - 原 package `verify.py` / `verify_integrity.py` 依然 pass（冇改原檔）

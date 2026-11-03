@@ -103,6 +103,110 @@ def test_list_rows_show_rank_probability_and_token(app):
     assert values[1][4] == 18 and values[1][5] == 9
 
 
+def test_heading_click_sorts_the_list_and_selection_follows_the_box(app):
+    app._set_frame(synthetic_frame(), BOXES, SCORED, pipeline.crop_to_target(1200, 900))
+
+    app._sort_by_heading("score")           # first click: biggest rank first
+    assert [iid for iid in app.tree.get_children()] == ["1", "0", "2"]
+    assert app.tree.heading("score")["text"] == "等級 ▼"
+    assert app.tree.heading("p")["text"] == "機率"
+
+    app._sort_by_heading("score")           # second click: reverse
+    assert [iid for iid in app.tree.get_children()] == ["2", "0", "1"]
+    assert app.tree.heading("score")["text"] == "等級 ▲"
+
+    app._sort_by_heading("p")               # probabilities, descending first
+    assert [iid for iid in app.tree.get_children()] == ["0", "1", "2"]
+    assert app.tree.heading("p")["text"] == "機率 ▼"
+
+    app._sort_by_heading("box")             # by box area, descending
+    assert [iid for iid in app.tree.get_children()] == ["0", "1", "2"]
+
+    app._sort_by_heading("token")           # ascending first for token/slot
+    assert [iid for iid in app.tree.get_children()] == ["0", "1", "2"]
+    assert app.tree.heading("token")["text"] == "token ▲"
+    app._sort_by_heading("token")           # again: biggest token first
+    assert [iid for iid in app.tree.get_children()] == ["2", "1", "0"]
+    assert app.tree.heading("token")["text"] == "token ▼"
+
+    # item ids stay tied to the detection, so sorting cannot move the selection
+    app.tree.selection_set("1")
+    app._tree_selected()
+    assert app._selected == 1
+    app._sort_by_heading("score")
+    assert app._selected == 1
+    assert "1" in app.tree.selection(), "the selected row stays selected after a re-sort"
+
+
+def test_sort_order_survives_a_language_rebuild_and_new_results(app):
+    app._set_frame(synthetic_frame(), BOXES, SCORED, pipeline.crop_to_target(1200, 900))
+    app._sort_by_heading("score")
+    app.set_language("en")
+    app.update()
+    assert [iid for iid in app.tree.get_children()] == ["1", "0", "2"]
+    assert app.tree.heading("score")["text"] == "Rank ▼"
+    app._set_frame(synthetic_frame(), BOXES, SCORED, pipeline.crop_to_target(1200, 900))
+    assert [iid for iid in app.tree.get_children()] == ["1", "0", "2"]
+
+
+def test_selecting_a_box_hides_the_other_boxes(app):
+    import numpy as np
+
+    frame = synthetic_frame()
+    crop = pipeline.crop_to_target(1200, 900)
+    app._set_frame(frame, BOXES, SCORED, crop)
+    app._selected = None
+    app.update()
+    unselected = np.asarray(app._compose().convert("RGB"))
+    assert int((unselected == np.array(draw.BOX_COLOR)).all(axis=2).sum()) > 0, \
+        "without a selection every box is drawn in the normal colour"
+
+    app._selected = 1
+    app.update()
+    composed = np.asarray(app._compose().convert("RGB"))
+    leftovers = int((composed == np.array(draw.BOX_COLOR)).all(axis=2).sum())
+    assert leftovers == 0, f"non-selected boxes must not be drawn, {leftovers} pixels remain"
+    assert int((composed == np.array(draw.SELECT_COLOR)).all(axis=2).sum()) > 0, \
+        "the selected box is still drawn bright"
+
+
+def test_box_label_never_runs_off_the_frame():
+    """A box touching the right edge must not clip the probability off the label."""
+    import numpy as np
+    from PIL import ImageDraw
+
+    def longest_run(row):
+        best = run = 0
+        for value in row:
+            run = run + 1 if value else 0
+            best = max(best, run)
+        return best
+
+    frame = Image.new("RGB", (200, 120), (0, 0, 0))
+    out = draw.draw_overlay(frame, [(170.0, 60.0, 40.0, 40.0, 700, 1)],
+                            pipeline.crop_to_target(200, 120), scale_for_display=1.0,
+                            scored=[{"token": 1, "slot": 9, "combined": 0.25}])
+    arr = np.asarray(out.convert("RGB"))
+    font = draw._load_font(14)
+    text_width = ImageDraw.Draw(out).textbbox((0, 0), "#0 · p 0.250", font=font)[2] + 6
+
+    fill = (arr == np.array(draw.TEXT_BACK)).all(axis=2)
+    longest = max(longest_run(row) for row in fill)
+    assert longest >= text_width, f"label background clipped to {longest}px, needs {text_width}px"
+    white_x = np.nonzero((arr == np.array(draw.TEXT_FORE)).all(axis=2))[1]
+    assert len(white_x) > 0 and int(white_x.max()) <= 199, "label text stays inside the canvas"
+
+
+def test_box_label_shows_only_index_and_probability():
+    """The preview label stays short: `#n · p x.xxx`; everything else is in the list."""
+    assert draw._label_text(1, SCORED[1]) == "#1 · p 0.612"
+    assert draw._label_text(0, SCORED[0]) == "#0 · p 0.874"
+    assert draw._label_text(2, None) == "#2 · p -"
+    assert "rank" not in draw._label_text(1, SCORED[1])
+    assert "tok" not in draw._label_text(1, SCORED[1])
+    assert "cls" not in draw._label_text(1, SCORED[1])
+
+
 def test_selected_box_is_100_percent_and_everything_else_is_faded(app):
     frame = synthetic_frame()
     crop = pipeline.crop_to_target(1200, 900)

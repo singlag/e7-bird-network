@@ -4,7 +4,6 @@ from pipeline import MODEL_HEIGHT, MODEL_WIDTH, Crop, model_to_source
 
 BOX_COLOR = (255, 60, 60)
 SELECT_COLOR = (255, 235, 90)
-DIM_BOX_COLOR = (150, 70, 70)
 CROP_COLOR = (255, 215, 0)
 TEXT_BACK = (255, 60, 60)
 TEXT_FORE = (255, 255, 255)
@@ -71,15 +70,18 @@ def map_records(records, crop: Crop):
     return mapped
 
 
-def _label_text(cls: int, score: int, scored: dict | None) -> str:
-    """`cls 4 · rank 991 · p 0.87` — `rank` is the 0–1000 calibration rank, `p` the
-    uncalibrated combined probability, so boxes from different slots stay comparable."""
-    label = f"cls {cls} · rank {score}"
-    if scored and scored.get("combined") is not None:
-        label += f" · p {float(scored['combined']):.3f}"
-    if scored and scored.get("token") is not None:
-        label += f" · tok {scored['token']}"
-    return label
+def _label_text(index: int, scored: dict | None) -> str:
+    """`#1 · p 0.168` — the preview only says which box it is and how sure we are.
+
+    Class, rank, token and slot are deliberately not drawn here: they are one
+    click away in the detection list, and long labels made overlapping boxes
+    unreadable.  `p` is the uncalibrated combined probability, so boxes from
+    different slots stay comparable; `-` means no score data for that row.
+    """
+    combined = scored.get("combined") if scored else None
+    if combined is None:
+        return f"#{index} · p -"
+    return f"#{index} · p {float(combined):.3f}"
 
 
 def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, scale_for_display=None,
@@ -87,9 +89,10 @@ def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, sc
     """Return a copy of `image` with the crop rectangle and boxes drawn on it.
 
     `scale_for_display` scales the drawn line widths / label fonts so an
-    enlarged preview stays legible.  `highlight` marks one box index as selected
-    (bright, thicker) and dims the rest; `scored` (from `score.annotate`) adds
-    probability / token to each label.
+    enlarged preview stays legible.  `highlight` marks one box index as the
+    selected one (bright, thicker) and hides every other box, so overlapping
+    detections stop competing once the user has picked one; `scored` (from
+    `score.annotate`) adds probability / token to each label.
     """
     from PIL import ImageDraw
 
@@ -114,12 +117,15 @@ def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, sc
 
     font = _load_font(max(12, int(round(14 * factor))))
     for index, (x, y, w, h, score, cls) in enumerate(mapped):
-        selected = highlight is not None and index == highlight
         if highlight is None:
+            selected = False
             color, width = BOX_COLOR, box_width
         else:
-            color = SELECT_COLOR if selected else DIM_BOX_COLOR
-            width = max(box_width, int(round(box_width * 1.6))) if selected else box_width
+            if index != highlight:
+                continue        # overlapping boxes disappear once one is selected
+            selected = True
+            color = SELECT_COLOR
+            width = max(box_width, int(round(box_width * 1.6)))
         left = x - w / 2.0
         top = y - h / 2.0
         right = x + w / 2.0
@@ -127,12 +133,20 @@ def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, sc
         draw.rectangle([left, top, right, bottom], outline=color, width=width)
         if not show_labels:
             continue
-        label = _label_text(cls, int(score), scored[index] if scored and index < len(scored) else None)
-        box = draw.textbbox((left, top), label, font=font)
+        label = _label_text(index, scored[index] if scored and index < len(scored) else None)
+        box = draw.textbbox((0, 0), label, font=font)
+        text_width = box[2] - box[0] + 6
         text_height = box[3] - box[1] + 4
-        draw.rectangle([left, top - text_height, left + (box[2] - box[0]) + 6, top],
+        # A box touching the right edge would otherwise clip the probability off
+        # the end of the string, so slide the label left until it fits.  A box at
+        # the top edge gets its label drawn just inside the box instead of above it.
+        label_left = min(left, max(0.0, canvas.width - text_width))
+        label_top = top - text_height
+        if label_top < 0:
+            label_top = min(max(0.0, bottom - text_height), top + width)
+        draw.rectangle([label_left, label_top, label_left + text_width, label_top + text_height],
                        fill=color if selected else TEXT_BACK)
-        draw.text((left + 3, top - text_height + 1), label, fill=TEXT_FORE, font=font)
+        draw.text((label_left + 3, label_top + 1), label, fill=TEXT_FORE, font=font)
     return canvas
 
 

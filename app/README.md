@@ -13,8 +13,8 @@ untouched, so `verify_integrity.py` and `verify.py` still pass.
 | 4. 選擇 Model | Model dropdown fed by `model_registry.py` (E7 bird model today) |
 | 5. 執行 | 「執行」/「取消」 (`Ctrl+R`), worker thread, progress bar, log |
 | 6. 顯示 model output + 識別目標框 | canvas redraws each processed frame with detection boxes plus the dashed 3:2 crop rectangle |
-| 加：偵測框 list box | `ttk.Treeview` beside the preview — 序 / 類別 / 等級 / 機率 / token / slot / 框.  Boxes overlap, so one row can be selected: that box and the pixels inside it stay at 100%, everything else fades toward grey (`draw.dim_outside`).  「清除選擇」 shows all boxes normally again. |
-| 加：token / combined probability / 行序 | `score.py` replays the decoder's per-cell gates off the head buffer, so every row carries `rank_order` (行序), `token`, `slot`, `combined_probability` and `objectness` — on the box labels, in the list box and in `detections.csv`.  The 0–1000 `rank_score` is a calibrated rank off one of 24 curves, not a probability, and is only comparable inside one slot. |
+| 加：偵測框 list box | `ttk.Treeview` beside the preview — 序 / 類別 / 等級 / 機率 / token / slot / 框.  Boxes overlap, so one row can be selected: that box and the pixels inside it stay at 100%, every other box is not drawn at all, and the rest of the frame fades toward grey (`draw.dim_outside`).  「清除選擇」 shows all boxes normally again.  Clicking a column heading sorts the list by that column (numeric, not text); clicking it again reverses, and the heading shows ▲/▼.  Row order never moves the selection: item ids stay tied to the detection. |
+| 加：token / combined probability / 行序 | `score.py` replays the decoder's per-cell gates off the head buffer, so every row carries `rank_order` (行序), `token`, `slot`, `combined_probability` and `objectness` — in the list box and in `detections.csv`.  The box label on the preview keeps only `#序 · p 機率`; class / rank / token / slot live in the list.  The 0–1000 `rank_score` is a calibrated rank off one of 24 curves, not a probability, and is only comparable inside one slot. |
 | 加：語言 / Language | 「語言」 dropdown (中文 / English) relabels the whole window in place; settings, boxes and log survive the switch.  Window title is `E7 object detection simulator - GUI` in both languages. |
 
 Non-3:2 input is centre-cropped to 3:2 **before** the 384×256 resize: height is
@@ -68,10 +68,12 @@ which library is used.
 - 輸出目錄 — defaults to `<input-name>-e7-out` next to the input file.
 - 語言 — 中文 / English; the window is rebuilt with the new labels and the
   current settings, boxes and log are kept.
-- 5 · 偵測框 — click a row to spotlight that box (its pixels stay at 100%, the
-  rest of the frame fades); the row shows rank / class / rank_score /
-  combined probability / token / slot / box geometry.  Keyboard: ↑/↓ through
-  rows, 「清除選擇」 to show all boxes at full strength.
+- 5 · 偵測框 — click a row to spotlight that box: its pixels stay at 100%, every
+  other box disappears, and the rest of the frame fades.  The row shows rank /
+  class / rank_score / combined probability / token / slot / box geometry, and
+  clicking a column heading sorts the list by that column (again = reverse).
+  The box label itself only carries `#序 · p 機率`.  Keyboard: ↑/↓ through rows,
+  「清除選擇」 to show all boxes at full strength.
 
 Outputs: `annotated.png` (image input), per-frame PNGs (video, optional),
 `annotated.mp4` (video, optional, drawn boxes baked in), `detections.csv`
