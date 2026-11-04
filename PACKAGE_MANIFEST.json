@@ -28,8 +28,8 @@
     },
     {
       "path": "core.py",
-      "bytes": 11326,
-      "sha256": "02d876f5f0958c931b43bb81bf887de503b039012598234b8c1feef6c35f3562"
+      "bytes": 15700,
+      "sha256": "5df243bc5f83e42c29f02331c776fd8ad5ded63ca5752e5a51910fad9125e8c7"
     },
     {
       "path": "DISTRIBUTION_POLICY.txt",
@@ -193,8 +193,13 @@
     },
     {
       "path": "manifest.json",
-      "bytes": 3636,
-      "sha256": "63294b2ff93cf68c80cfd53950e3203d4c3c04a47302d8401a277b33c85232c7"
+      "bytes": 3624,
+      "sha256": "3477f2d25727ee90f0b5eb4a09b58adfa046d5f24d1163c397c166b5bec5a20e"
+    },
+    {
+      "path": "model_bin.py",
+      "bytes": 11473,
+      "sha256": "d3226b18b3bf11c8dea33d734b2cc98ce122a4bfc1392fc7750f544b9b9a41ac"
     },
     {
       "path": "network.py",

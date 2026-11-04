@@ -4,6 +4,7 @@ Only CPU torch operations are used. The weights and command order are unchanged.
 """
 from pathlib import Path
 import json,hashlib
+import model_bin
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -31,7 +32,29 @@ def rounded(x,mode='rne',ftz=False):
     return y
 
 
+def _hw_exponent(a,b):
+    # Operands here are always float32 tensors holding fp16-grid values (weights
+    # come from the binary, activations and products pass through rounded()), so the
+    # exponent of the larger magnitude IS the common hardware exponent field: zeros
+    # and subnormals clamp to 1 exactly as the per-operand exponent fields do.
+    m=torch.maximum(a.abs(),b.abs()).to(torch.float32).contiguous().view(torch.int32)
+    return (((m>>23)&255)-112).clamp(1,31)
+
+
 def add_variant(a,b,g,mode,ftz=False):
+    if mode=='magnitude' and bool(a.isfinite().all()) and bool(b.isfinite().all()):
+        # The same adder evaluated in the float domain: aligning to the larger
+        # exponent and truncating toward zero at the hardware quantum 2**(e-25-g) is
+        # a multiply by a power of two followed by trunc(), and with both operands
+        # scaled that way their sum is exact in float32 (|n|<2**16), so the bits come
+        # out identical to the integer path below with about half the passes. Non-
+        # finite operands (inf saturates to 0x7bff in this model) and the signed-
+        # floor/jam/nearest variants keep the integer path.
+        a,b=torch.broadcast_tensors(a,b)
+        e=_hw_exponent(a,b);k=e-(25+g);s=torch.ldexp(torch.ones_like(a),-k)
+        n=(a*s).trunc()+(b*s).trunc();value=torch.ldexp(n,k)
+        value=torch.where((n==0)&torch.signbit(a)&torch.signbit(b),-torch.zeros_like(value),value)
+        return rounded(value,'rtz',ftz)
     aa,bb=torch.broadcast_tensors(a.half().view(torch.int16).int()&65535,b.half().view(torch.int16).int()&65535)
     ea=((aa>>10)&31).clamp_min(1);eb=((bb>>10)&31).clamp_min(1);e=torch.maximum(ea,eb)
     def align(bits,delta):
@@ -82,6 +105,24 @@ class PhysicalStream:
             v['weight']=torch.from_numpy(np.frombuffer(raw,'<f2',256,offset).astype(np.float32).reshape(16,16))
             offset=b['bias_body_offset']
             v['bias']=torch.from_numpy(np.frombuffer(raw,'<f2',16,int(offset,16)).astype(np.float32)) if offset else None
+        # Head layout is read from the program's own head-write DMAs; for
+        # resource744 it must reproduce the published fine[22,16,24] /
+        # coarse[33,8,12] geometry, which is asserted below.
+        geometry=model_bin.head_geometry(raw,self.events)
+        self.head_halves=geometry['head_halves'];self.head_stages=geometry['stages']
+        assert self.head_halves==25344//2,geometry
+        assert [(s['planes'],s['h'],s['w']) for s in self.head_stages]==[(22,16,24),(33,8,12)],geometry
+
+    @classmethod
+    def from_body(cls,path):
+        """Replay any resource744-layout body (NET4/NET6/NET7…). Raises if the body has unconsumed words."""
+        body=Path(path).read_bytes()
+        events,activations,audit,geometry=model_bin.disassemble(body)
+        if audit['failures']:raise ValueError(f"{Path(path).name}: {audit['failures'][0]}: {audit['unresolved'][:6]}")
+        obj=cls.__new__(cls)
+        obj.events=events;obj.activations=activations;obj.audit=audit;obj.policy=dict(POLICY)
+        obj.head_halves=geometry['head_halves'];obj.head_stages=geometry['stages']
+        return obj
 
     @staticmethod
     def shape(hw,edge):
@@ -112,7 +153,7 @@ class PhysicalStream:
         n = len(pixels)
         banks = torch.zeros(2, n, 16, 256, 256)
         work = torch.zeros(n, 1048576 // 2)
-        head = torch.zeros(n, 25344 // 2)
+        head = torch.zeros(n, self.head_halves)
         input_flat = pixels.reshape(n, -1)
         if pol.get('input_half'):
             input_flat = half(input_flat, pol.get('ftz', False))
@@ -120,6 +161,8 @@ class PhysicalStream:
         hw = None
         acc = None
         pending_bias = None
+        pending_pool = None
+        lanes = []
         for p, kind, v in self.events:
             if kind == 'matrix':
                 b = v['block']
@@ -214,9 +257,43 @@ class PhysicalStream:
                 ox, oy = (words[2] >> 8, words[2] & 255)
                 z = F.max_pool2d(banks[major & 1, :, :, sy:sy + h, sx:sx + w], 2)
                 banks[1 - (major & 1), :, :, oy:oy + z.shape[-2], ox:ox + z.shape[-1]] = z
+            elif (op & 0xE0FF) == 0xA080:
+                # NET9 pooling corner record: bit 8 selects the source bank
+                # (destination is the other bank, as in the max-pool ops),
+                # bit 9 marks the leader record that overwrites the
+                # half-resolution destination cell; the 16 fp16 lane
+                # weights arrive as 0x34 ops and are applied one cell at
+                # a time. Candidate semantics decoded from the firmware
+                # NN zone: no NET9 golden output exists in the camera
+                # stream, so BIRD regression is the only bit-exact gate.
+                pending_pool = (op >> 8 & 1, 1 - (op >> 8 & 1), bool(op & 512),
+                                (words[1] >> 8, words[1] & 255), (words[2] >> 8, words[2] & 255))
+                lanes = []
+            elif major == 52:
+                if pending_pool is None:
+                    raise ValueError((hex(p), hex(op)))
+                lanes.append(torch.tensor([op], dtype=torch.int16).view(torch.float16).item())
+                if len(lanes) == 16:
+                    srcbank, dstbank, init, (x, y), (ox, oy) = pending_pool
+                    w = torch.tensor(lanes)[None, :, None, None]
+                    z = banks[srcbank][:, :, y:y + 1, x:x + 1] * w
+                    if pol.get("pool_half", True):
+                        z = half(z, pol.get("ftz", False))
+                    if init:
+                        banks[dstbank][:, :, oy, ox] = z[:, :, 0, 0]
+                    else:
+                        banks[dstbank][:, :, oy, ox] += z[:, :, 0, 0]
+                        if pol.get("pool_half", True):
+                            banks[dstbank][:, :, oy, ox] = half(banks[dstbank][:, :, oy, ox], pol.get("ftz", False))
+                    pending_pool = None
+                    lanes = []
             elif op in (0, 16512):
                 pass
             else:
                 raise ValueError((hex(p), hex(op)))
         assert acc is None
-        return (head[:, :16896 // 2].reshape(n, 22, 16, 24), head[:, 16896 // 2:].reshape(n, 33, 8, 16)[:, :, :, :12])
+        out=[]
+        for st in self.head_stages:
+            t=head[:, st['base']:st['base'] + st['planes'] * st['h'] * st['pitch']]
+            out.append(t.reshape(n, st['planes'], st['h'], st['pitch'])[:, :, :, :st['w']])
+        return tuple(out)
