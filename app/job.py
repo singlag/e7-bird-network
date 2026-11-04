@@ -14,6 +14,7 @@ from typing import Callable, Optional
 
 import draw
 import frames as frames_module
+import nef
 import pipeline
 import score
 
@@ -62,6 +63,11 @@ def run_job(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     info = frames_module.probe(source_path)
+    nef_meta = (info.extra or {}).get("meta") if info.kind == "nef" else None
+    af_box = nef_meta.af if nef_meta else None
+    # The overlay and the list box work in display pixels; the maker-note box
+    # is in sensor (AFImage) space, so convert once.
+    af_display = nef.af_display_box(nef_meta, (info.width, info.height)) if nef_meta else None
     stride, planned = frames_module.sampling_plan(info, per_second, max_frames)
     available = (
         max(1, math.ceil(float(info.duration or 0.0) * max(float(per_second), 0.01)))
@@ -81,6 +87,7 @@ def run_job(
         planned=planned,
         available=available,
         truncated=truncated,
+        af_box=af_display,
     )
 
     model.load(log=log)
@@ -98,8 +105,14 @@ def run_job(
         if should_cancel is not None and should_cancel():
             log("已取消 / cancelled")
             break
-        crop = pipeline.crop_to_target(image.width, image.height)
-        encoded = pipeline.encode(image, crop)
+        if nef_meta is not None:
+            # The camera framed this shot 3:2 and fed its NN the 384x256 NNIN
+            # strip: run exactly the bytes the device saw, no crop/resize.
+            crop = pipeline.Crop(0, 0, image.width, image.height, "raw_nnin")
+            encoded = nef.encode_input(nef_meta)
+        else:
+            crop = pipeline.crop_to_target(image.width, image.height)
+            encoded = pipeline.encode(image, crop)
         inference = model.infer(encoded, include_workspace=save_heads)
         report = model.decode(inference["head_buffer"])
         mapped = draw.map_records(report["records"], crop)
@@ -109,14 +122,15 @@ def run_job(
         scored = score.annotate(report, inference["head_buffer"], table_factory()) if table_factory else []
         display_scale = max(1.0, max(image.width, image.height) / 900.0)
         annotated = draw.draw_overlay(image, mapped, crop, show_crop=True, show_labels=True,
-                                      scale_for_display=display_scale, scored=scored)
+                                      scale_for_display=display_scale, scored=scored,
+                                      af_box=af_display)
         total_infer += inference["seconds"]
         processed += 1
         detections_total += len(mapped)
 
         relative = f"frame-{index:05d}.png"
-        if info.kind == "image" or save_frames:
-            annotated_path = output_dir / ("annotated.png" if info.kind == "image" else relative)
+        if info.kind in ("image", "nef") or save_frames:
+            annotated_path = output_dir / ("annotated.png" if info.kind in ("image", "nef") else relative)
             annotated.save(annotated_path)
             exports.append(str(annotated_path))
             annotated_files.append(annotated_path)
@@ -141,6 +155,7 @@ def run_job(
                 "decoder_visited": report["visited"],
                 "decoder_accepted": report["accepted"],
                 "decoder_backend": report["backend"],
+                "camera_af": af_display,
                 "records_model_space": report["records"],
                 "records_scored": scored,
                 "boxes_source_pixels": [
@@ -163,6 +178,7 @@ def run_job(
             annotated=annotated,
             raw=image,
             mapped=mapped,
+            af_box=af_display,
             scored=scored,
             report=report,
         )
@@ -234,6 +250,7 @@ def run_job(
         "duration": info.duration,
         "sampling": {"per_second": per_second, "stride_frames": stride, "planned": planned, "available": available,
                      "truncated_to_first_seconds": planned / max(float(per_second), 0.01) if info.kind == "video" else None},
+        "camera_af": af_box,
         "processed_frames": processed,
         "detections_total": detections_total,
         "network_seconds_total": total_infer,

@@ -80,7 +80,8 @@ def model_to_source(cx: float, cy: float, w: float, h: float, crop: Crop):
 
 
 def describe_crop(width: int, height: int, crop: Crop) -> str:
-    names = {"trim_height": "削高度 (trim height)", "trim_width": "削寬度 (trim width)", "none": "無需裁剪 (already 3:2)"}
+    names = {"trim_height": "削高度 (trim height)", "trim_width": "削寬度 (trim width)",
+             "none": "無需裁剪 (already 3:2)", "raw_nnin": "機身 NNIN 原圖 (no crop)"}
     return (
         f"{width}x{height} ({width / height:.3f}) -> {names[crop.mode]} -> "
         f"{crop.width}x{crop.height} @{crop.x},{crop.y} -> resize {MODEL_WIDTH}x{MODEL_HEIGHT}"

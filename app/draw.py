@@ -3,6 +3,7 @@
 from pipeline import MODEL_HEIGHT, MODEL_WIDTH, Crop, model_to_source
 
 BOX_COLOR = (255, 60, 60)
+AF_COLOR = (46, 204, 113)           # the camera's own selected AF box (green, user-specified)
 SELECT_COLOR = (255, 235, 90)
 CROP_COLOR = (255, 215, 0)
 TEXT_BACK = (255, 60, 60)
@@ -85,14 +86,16 @@ def _label_text(index: int, scored: dict | None) -> str:
 
 
 def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, scale_for_display=None,
-                 highlight=None, scored=None):
+                 highlight=None, scored=None, af_box=None):
     """Return a copy of `image` with the crop rectangle and boxes drawn on it.
 
     `scale_for_display` scales the drawn line widths / label fonts so an
     enlarged preview stays legible.  `highlight` marks one box index as the
     selected one (bright, thicker) and hides every other box, so overlapping
     detections stop competing once the user has picked one; `scored` (from
-    `score.annotate`) adds probability / token to each label.
+    `score.annotate`) adds probability / token to each label.  `af_box` (a NEF
+    maker-note dict with x/y/w/h in source pixels + mode_name) draws the
+    camera's own AF rectangle in green.
     """
     from PIL import ImageDraw
 
@@ -116,6 +119,15 @@ def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, sc
         )
 
     font = _load_font(max(12, int(round(14 * factor))))
+
+    if af_box:
+        left, top = af_box["x"], af_box["y"]
+        right, bottom = left + af_box["w"], top + af_box["h"]
+        draw.rectangle([left, top, right, bottom], outline=AF_COLOR, width=box_width)
+        if show_labels:
+            label = f"機身AF · {af_box.get('mode_name') or ''}".rstrip(" ·")
+            draw.text((left + 4, top + 4), label, font=font, fill=AF_COLOR)
+
     for index, (x, y, w, h, score, cls) in enumerate(mapped):
         if highlight is None:
             selected = False

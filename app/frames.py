@@ -1,9 +1,13 @@
-"""Input sources: still photos and sampled video frames.
+"""Input sources: still photos, sampled video frames, and NEF raw files.
 
 Video sampling (user-specified):
   * take one frame per `per_second` seconds -> stride `N = round(fps * per_second)`
   * process at most `min(60, round(fps))` frames by default; the UI exposes the
     value so a longer clip can be raised manually
+
+NEF raw files are processed one at a time (device memory): the embedded
+preview JPEG is the display frame, the camera's own 384x256 NNIN strip is the
+model input, and the maker-note AF box is surfaced for display (see nef.py).
 """
 
 import math
@@ -14,6 +18,7 @@ DEFAULT_FPS = 25.0
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".gif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv", ".mpg", ".mpeg", ".3gp"}
+RAW_EXTENSIONS = {".nef", ".nrw"}
 
 
 @dataclass
@@ -25,7 +30,7 @@ class FrameJob:
 
 @dataclass
 class SourceInfo:
-    kind: str  # "image" | "video"
+    kind: str  # "image" | "video" | "nef"
     path: str
     width: int
     height: int
@@ -37,6 +42,7 @@ class SourceInfo:
     max_frames: int | None = None
     truncated: bool = False
     note: str = ""
+    extra: dict | None = None  # kind-specific payload (NEF: camera AF box, NNIN, meta)
 
 
 def classify(path: Path) -> str:
@@ -45,6 +51,8 @@ def classify(path: Path) -> str:
         return "image"
     if suffix in VIDEO_EXTENSIONS:
         return "video"
+    if suffix in RAW_EXTENSIONS:
+        return "nef"
     raise ValueError(f"unsupported file type: {suffix or path.name}")
 
 
@@ -61,6 +69,29 @@ def probe(path: Path | str) -> SourceInfo:
 
         with Image.open(path) as image:
             return SourceInfo("image", str(path), image.width, image.height, sampled=1)
+    if kind == "nef":
+        import io
+        import mmap
+
+        import nef
+        from PIL import Image
+
+        meta = nef.probe_nef(path)
+        if meta.preview is None:
+            raise ValueError(f"NEF has no embedded preview: {path}")
+        with open(path, "rb") as handle:
+            buf = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+            data = bytes(buf[meta.preview[0]:meta.preview[0] + meta.preview[1]])
+            buf.close()
+        with Image.open(io.BytesIO(data)) as preview:
+            width, height = preview.size
+        if meta.orientation in (5, 6, 7, 8):
+            width, height = height, width
+        af = meta.af
+        note = (f"{af['iw']}x{af['ih']} RAW · {af['mode_name']}" if af
+                else f"RAW · {meta.note or 'no AF box'}")
+        return SourceInfo("nef", str(path), width, height, sampled=1, note=note,
+                          extra={"meta": meta})
     import imageio_ffmpeg
 
     meta = _ffmpeg_meta(path)
@@ -92,7 +123,7 @@ def _ffmpeg_meta(path: Path) -> dict:
 
 def sampling_plan(info: SourceInfo, per_second: float, max_frames: int | None) -> tuple[int, int]:
     """Return (stride, frames_to_process)."""
-    if info.kind == "image":
+    if info.kind in ("image", "nef"):
         return 1, 1
     fps = float(info.fps or DEFAULT_FPS)
     # stride in source frames: sampling `per_second` frames per source second
@@ -142,6 +173,12 @@ def iter_frames(path: Path | str, info: SourceInfo, stride: int, max_frames: int
     if info.kind == "image":
         with Image.open(path) as image:
             yield 0, 0.0, image.convert("RGB")
+        return
+    if info.kind == "nef":
+        import nef
+
+        meta = (info.extra or {}).get("meta") or nef.probe_nef(path)
+        yield 0, 0.0, nef.preview_image(path, meta)
         return
     import imageio_ffmpeg
 

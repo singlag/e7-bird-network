@@ -38,6 +38,10 @@ def parse_args(argv=None):
 def report(event):
     kind = event.get("kind")
     if kind == "plan":
+        af = event.get("af_box")
+        if af:
+            print(f"camera AF box: {int(af['x'])},{int(af['y'])} "
+                  f"{int(af['w'])}x{int(af['h'])} ({af.get('mode_name')})")
         detail = f" @ {event['fps']} fps" if event["source_kind"] == "video" else ""
         print(f"input   : {event['source']} ({event['source_kind']} {event['width']}x{event['height']}{detail})")
         suffix = " (truncated by the cap)" if event["truncated"] else ""

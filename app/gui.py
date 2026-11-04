@@ -4,7 +4,7 @@
 
 Requirements from the brief:
   1. GUI 介面                    — this window (Tkinter, stdlib)
-  2. 選擇 input photo or video   — 「選擇輸入」 button, photo/video file filter
+  2. 選擇 input photo or video   — 「選擇輸入」 button, photo/video/NEF RAW file filter
   3. 顯示選擇了的 input          — canvas shows the image / sampled video frames
   4. 選擇 Model                  — dropdown fed by `model_registry` (E7 bird model today)
   5. 執行                        — run / cancel buttons, worker thread, progress bar, log
@@ -22,6 +22,9 @@ Added on top of the brief:
 
 Input that is not 3:2 is centre-cropped to 3:2 first (trimming height where
 possible, width otherwise) and then resized to 384x256 — see `pipeline.py`.
+NEF raw files bypass the crop: the camera's own 384x256 NNIN strip is fed to
+the model as-is, and the maker-note AF box is shown in green on the preview
+plus as an `AF` row in the detection list — see `nef.py`.
 """
 
 import os
@@ -46,11 +49,13 @@ import draw
 import frames as frames_module
 import job
 import model_registry
+import nef
 import pipeline
 
 WINDOW_TITLE = "E7 object detection simulator - GUI"
 IMAGE_GLOBS = "*.jpg *.jpeg *.png *.bmp *.tif *.tiff *.webp *.gif"
 VIDEO_GLOBS = "*.mp4 *.mov *.avi *.mkv *.webm *.m4v *.wmv *.mpg *.mpeg *.3gp"
+RAW_GLOBS = "*.nef *.NEF *.nrw *.NRW"
 
 STRINGS = {
     "zh": {
@@ -72,10 +77,11 @@ STRINGS = {
         "cancel": "取消",
         "language": "語言",
         "ready": "準備好 / ready — 選擇一個圖片或影片檔案",
-        "pick_title": "選擇圖片或影片",
-        "file_all": "圖片及影片",
+        "pick_title": "選擇圖片、影片或 NEF RAW",
+        "file_all": "圖片、影片及 RAW",
         "file_image": "圖片",
         "file_video": "影片",
+        "file_raw": "NEF RAW",
         "file_every": "所有檔案",
         "no_source": "(未有輸入)",
         "preview_image": "預覽：選了的圖片",
@@ -103,6 +109,8 @@ STRINGS = {
         "box_none": "冇選偵測框：全部框正常顯示",
         "kind_video": "影片",
         "kind_image": "靜止圖片",
+        "kind_nef": "NEF RAW",
+        "af_log": "機身 AF 框：{box}（{mode}）— 綠色顯示喺預覽",
         "col_rank": "序",
         "col_cls": "類別",
         "col_score": "等級",
@@ -130,10 +138,11 @@ STRINGS = {
         "cancel": "Cancel",
         "language": "Language",
         "ready": "Ready — pick an image or video file",
-        "pick_title": "Choose an image or video",
-        "file_all": "Images and videos",
+        "pick_title": "Choose an image, video or NEF raw",
+        "file_all": "Images, videos and RAW",
         "file_image": "Images",
         "file_video": "Videos",
+        "file_raw": "RAW (NEF)",
         "file_every": "All files",
         "no_source": "(no input)",
         "preview_image": "Preview: the selected image",
@@ -161,6 +170,8 @@ STRINGS = {
         "box_none": "No box selected: all boxes shown normally",
         "kind_video": "video",
         "kind_image": "still image",
+        "kind_nef": "NEF raw",
+        "af_log": "camera AF box: {box} ({mode}) — green rectangle on the preview",
         "col_rank": "#",
         "col_cls": "Class",
         "col_score": "Rank",
@@ -379,6 +390,7 @@ class App(tk.Tk):
     export_video_var: tk.BooleanVar
     output_entry = None
     _output_dir_text = ""
+    _af_box: dict | None = None  # camera AF rectangle in display pixels (NEF sources only)
     _after_id = None
     _sort_column = None
     _sort_descending = False
@@ -411,9 +423,10 @@ class App(tk.Tk):
     # ----------------------------------------------------------------- input
     def _file_types(self):
         return [
-            (self._t("file_all"), f"{IMAGE_GLOBS} {VIDEO_GLOBS}"),
+            (self._t("file_all"), f"{IMAGE_GLOBS} {VIDEO_GLOBS} {RAW_GLOBS}"),
             (self._t("file_image"), IMAGE_GLOBS),
             (self._t("file_video"), VIDEO_GLOBS),
+            (self._t("file_raw"), RAW_GLOBS),
             (self._t("file_every"), "*.*"),
         ]
 
@@ -428,9 +441,12 @@ class App(tk.Tk):
         size = f"{info.width}x{info.height}"
         if info.kind == "video":
             detail = f"{info.fps:.2f} fps · {info.duration:.2f} s · {info.total_frames or '?'} frames"
+        elif info.kind == "nef":
+            detail = info.note or self._t("kind_nef")
         else:
             detail = self._t("kind_image")
-        return f"{self.source.name}\n{self._t('kind_video') if info.kind == 'video' else info.kind} · {size} · {detail}"
+        kind_name = {"video": self._t("kind_video"), "nef": self._t("kind_nef")}.get(info.kind, info.kind)
+        return f"{self.source.name}\n{kind_name} · {size} · {detail}"
 
     def set_source(self, path: Path):
         try:
@@ -463,7 +479,13 @@ class App(tk.Tk):
                 self.info, float(self.per_second_var.get() or 1.0), self.max_frames_var.get() or None
             )
             for _, _, image in frames_module.iter_frames(self.source, self.info, stride, 1):
-                crop = pipeline.crop_to_target(image.width, image.height)
+                if self.info.kind == "nef":
+                    # Raw: the camera already framed 3:2 and fed the NN the
+                    # NNIN strip — show its own AF box in green instead of a crop.
+                    crop = pipeline.Crop(0, 0, image.width, image.height, "raw_nnin")
+                    self._af_box = nef.af_display_box((self.info.extra or {})["meta"], image.size)
+                else:
+                    crop = pipeline.crop_to_target(image.width, image.height)
                 self._set_frame(image, [], [], crop)
                 self._set_status(pipeline.describe_crop(image.width, image.height, crop))
                 break
@@ -493,6 +515,7 @@ class App(tk.Tk):
     def _clear_boxes(self):
         self._mapped, self._scored = [], []
         self._selected = None
+        self._af_box = None
         if hasattr(self, "tree"):
             self.tree.delete(*self.tree.get_children())
             self.selection_label.config(text=self._t("no_boxes"))
@@ -556,6 +579,15 @@ class App(tk.Tk):
         if not hasattr(self, "tree"):
             return
         self.tree.delete(*self.tree.get_children())
+        if self._af_box:
+            # The camera's own chosen AF box, as its own row: green source, not
+            # a model detection, so score / p / token / slot stay empty.
+            self.tree.insert(
+                "", 0, iid="af",
+                values=("AF", "CAM", "-", "-", "-", "-",
+                        f"{int(self._af_box['x'])},{int(self._af_box['y'])} "
+                        f"{int(self._af_box['w'])}x{int(self._af_box['h'])}"),
+            )
         for index, (mapped, scored) in enumerate(zip(self._mapped, self._scored + [{}] * (len(self._mapped) - len(self._scored)))):
             x, y, w, h, score, cls = mapped
             combined = scored.get("combined")
@@ -582,7 +614,10 @@ class App(tk.Tk):
         selection = self.tree.selection()
         if not selection:
             return
-        self._selected = int(selection[0])
+        try:
+            self._selected = int(selection[0])
+        except ValueError:
+            return  # the AF row is the camera's own box: display only, not selectable
         self.selection_label.config(text=self._t("box_selected", index=self._selected))
         self._redraw()
 
@@ -603,11 +638,12 @@ class App(tk.Tk):
         scale = max(1.0, max(self._raw.width, self._raw.height) / 900.0)
         if self._selected is None or not self._mapped:
             return draw.draw_overlay(self._raw, self._mapped, crop, show_crop=True, show_labels=True,
-                                     scale_for_display=scale, scored=self._scored)
+                                     scale_for_display=scale, scored=self._scored, af_box=self._af_box)
         box = self._mapped[self._selected]
         faded = draw.dim_outside(self._raw, box)
         return draw.draw_overlay(faded, self._mapped, crop, show_crop=True, show_labels=True,
-                                 scale_for_display=scale, highlight=self._selected, scored=self._scored)
+                                 scale_for_display=scale, highlight=self._selected, scored=self._scored,
+                                 af_box=self._af_box)
 
     def _redraw(self):
         if self._raw is None:
@@ -738,7 +774,16 @@ class App(tk.Tk):
             truncated = self._t("truncated", planned=event.get("planned")) if event.get("truncated") else ""
             self._log(self._t("sampling", stride=event.get("stride"), planned=event.get("planned"),
                               truncated=truncated))
+            af = event.get("af_box")
+            if af:
+                self._af_box = af
+                self._log(self._t("af_log",
+                                  box=f"{int(af['x'])},{int(af['y'])} {int(af['w'])}x{int(af['h'])}",
+                                  mode=af.get("mode_name") or "?"))
+                self._fill_tree()
         elif kind == "frame":
+            if event.get("af_box"):
+                self._af_box = event["af_box"]
             crop = event.get("crop")
             crop_object = pipeline.Crop(**crop) if crop else pipeline.crop_to_target(
                 event["raw"].width, event["raw"].height
@@ -811,30 +856,76 @@ def selftest(path: str | None):
         ]
         app._set_frame(app._raw, boxes, scored, crop)
         app.update()
-        assert len(app.tree.get_children()) == 2, app.tree.get_children()
+        rows = [c for c in app.tree.get_children() if str(c).isdigit()]
+        assert len(rows) == 2, app.tree.get_children()
+        assert ("af" in app.tree.get_children()) == (app._af_box is not None), \
+            f"AF row must appear exactly for NEF sources: {app.tree.get_children()}"
+        if app.info.kind == "nef":
+            # camera AF box: own list row + green rectangle on the canvas
+            assert app._af_box is not None, "NEF source must surface the camera AF box"
+            print(f"selftest: AF row {app.tree.item('af')['values']}")
+            composed = app._compose().convert("RGB")
+            af_x = int(app._af_box["x"])
+            af_y = int(app._af_box["y"])
+            af_h = int(app._af_box["h"])
+            greens = []
+            for frac in (0.6, 0.75, 0.9):   # label chips may cover the upper edge
+                my = af_y + int(af_h * frac)
+                greens.append(any(abs(r - 46) < 50 and abs(g - 204) < 50 and abs(b - 113) < 50
+                                  for r, g, b in (composed.getpixel((x, my))
+                                                  for x in range(max(0, af_x - 40), af_x + 40))))
+            assert any(greens), f"camera AF box must draw green along x={af_x}: {greens}"
+            app._handle_event({"kind": "plan", "planned": 1, "stride": 1, "af_box": app._af_box})
+            assert any("AF 框" in l or "AF box" in l for l in app._log_lines), app._log_lines[-3:]
         app._selected = 1
         app._redraw()
         app.update()
         composed = app._compose().convert("RGB")
         base = app._raw.convert("RGB")
         box = boxes[1]
-        inside_left = int(box[0] - box[2] / 2) + 8
-        inside_right = int(box[0] + box[2] / 2) - 8
-        inside_top = int(box[1] - box[3] / 2) + 8
-        inside_bottom = int(box[1] + box[3] / 2) - 8
+        scale = max(1.0, max(base.width, base.height) / 900.0)
+        stroke = int(round(5.0 * scale)) + 10   # widest deliberate stroke is the
+                                                # highlighted box (box_width * 1.6)
+        def near_line(px, py, rect, pad):
+            """True when the pixel sits within `pad` of the rectangle's outline."""
+            x, y, w, h = rect
+            vertical = (abs(px - x) <= pad or abs(px - (x + w)) <= pad) and (y - pad <= py <= y + h + pad)
+            horizontal = (abs(py - y) <= pad or abs(py - (y + h)) <= pad) and (x - pad <= px <= x + w + pad)
+            return vertical or horizontal
+        crop_rect = (crop.x, crop.y, crop.width, crop.height)
+        af_rect = (app._af_box["x"], app._af_box["y"], app._af_box["w"], app._af_box["h"]) \
+            if app._af_box else None
+        inside_left = int(box[0] - box[2] / 2) + stroke
+        inside_right = int(box[0] + box[2] / 2) - stroke
+        inside_top = int(box[1] - box[3] / 2) + stroke   # below the box outline
+        label_band = stroke * 6                          # labels sit inside the top edge
+        inside_bottom = int(box[1] + box[3] / 2) - stroke
         outside_same = 0
         outside_total = 0
         for x in range(0, base.width, max(1, base.width // 40)):
             for y in range(0, base.height, max(1, base.height // 20)):
                 if inside_left <= x <= inside_right and inside_top <= y <= inside_bottom:
                     continue
+                if near_line(x, y, crop_rect, stroke):
+                    continue                             # crop overlay stroke
+                if af_rect and near_line(x, y, af_rect, stroke):
+                    continue                             # camera AF box stroke
                 outside_total += 1
                 if composed.getpixel((x, y)) == base.getpixel((x, y)):
                     outside_same += 1
         inside_same = 0
         inside_total = 0
         for x in range(inside_left, inside_right, max(1, (inside_right - inside_left) // 20)):
-            for y in range(inside_top, inside_bottom, max(1, (inside_bottom - inside_top) // 12)):
+            for y in range(inside_top + label_band, inside_bottom,
+                           max(1, (inside_bottom - inside_top) // 12)):
+                if near_line(x, y, crop_rect, stroke):
+                    continue                             # crop overlay crosses the box
+                if af_rect and near_line(x, y, af_rect, stroke):
+                    continue
+                if af_rect:
+                    font_px = max(12, int(round(14 * scale)))  # label = f"機身AF · {mode}"
+                    if af_rect[0] <= x <= af_rect[0] + 14 * font_px and af_rect[1] <= y <= af_rect[1] + 2 * font_px:
+                        continue                               # green AF label text inside the box
                 inside_total += 1
                 if composed.getpixel((x, y)) == base.getpixel((x, y)):
                     inside_same += 1
