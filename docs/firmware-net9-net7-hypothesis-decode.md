@@ -1,4 +1,4 @@
-# NET7 / NET9 hypothesis-grade decode experiment — template #2 thresholds/curves
+# NET4 / NET6 / NET7 / NET9 hypothesis-grade decode experiment — template #2 thresholds/curves
 
 > **STATUS: UNVERIFIED (未驗證).** Every box produced in this experiment is a
 > hypothesis artifact. None of it has ground-truth parity, so nothing here may
@@ -76,3 +76,22 @@ extras), anchor-scale semantics of the 0x66588 grid, and rank-curve direction.
 NET boxes remain blocked until the CEVA-XM6 object-code zone yields the real
 consumer (Route B disassembly) or a field-order search over richer hypotheses
 is run against more golden files. No GUI changes made.
+
+## Addendum: NET4 / NET6 (same experiment, stage-0 only)
+
+NET4 heads are `[30,16,24]` (2 anchors × 15 fields), NET6 `[26,16,24]`
+(2 × 13); both models emit a **single stage** (no stage-1 tensor), so the
+decode ran stage-0 only with the same mapping/geometry hypothesis matrix.
+
+| hypothesis | obj gate passes | score pass (cls0) | candidates | clipped records | golden hits |
+|---|---|---|---|---|---|
+| NET4-A (poly/sigm) | 2 | 2 | 0 | 0 | 0 |
+| NET6-A (poly/sigm) | 0 | 0 | 0 | 0 | 0 |
+| NET4-B (poly/sigm) | 262 | 262 | 35 | 0 | 0 |
+| NET6-B (poly/sigm) | 649 | 649 | 35 | 0 | 0 |
+
+Same signature as NET7/NET9: mapping A is dead, field-major B clears the
+gates, but every candidate is rejected by `clip` (geometry planes hold the
+wrong magnitudes under both polynomial and sigmoid scale hypotheses), so zero
+boxes come out — even weaker than NET9's inconclusive sigm scatter. The
+NET4/NET6 contract is equally unresolved; nothing was wired into the GUI.
