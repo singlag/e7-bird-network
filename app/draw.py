@@ -82,7 +82,7 @@ def _label_text(index: int, scored: dict | None) -> str:
     combined = scored.get("combined") if scored else None
     if combined is None:
         return f"#{index} · p -"
-    return f"#{index} · p {float(combined):.3f}"
+    return f"#{index} · p {100.0 * float(combined):.1f}%"
 
 
 def draw_overlay(image, mapped, crop: Crop, show_crop=True, show_labels=True, scale_for_display=None,

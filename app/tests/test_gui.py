@@ -99,7 +99,8 @@ def test_list_rows_show_rank_probability_and_token(app):
     values = [app.tree.item(iid)["values"] for iid in app.tree.get_children()]
     assert [row[0] for row in values] == [0, 1, 2]
     assert values[1][2] == 991
-    assert float(values[1][3]) == pytest.approx(0.612, abs=1e-3)
+    assert float(values[1][3].rstrip("%")) == pytest.approx(61.2, abs=0.1)
+    assert values[1][3].endswith("%"), "probabilities display as 0-100 %"
     assert values[1][4] == 18 and values[1][5] == 9
 
 
@@ -188,7 +189,7 @@ def test_box_label_never_runs_off_the_frame():
                             scored=[{"token": 1, "slot": 9, "combined": 0.25}])
     arr = np.asarray(out.convert("RGB"))
     font = draw._load_font(14)
-    text_width = ImageDraw.Draw(out).textbbox((0, 0), "#0 · p 0.250", font=font)[2] + 6
+    text_width = ImageDraw.Draw(out).textbbox((0, 0), "#0 · p 25.0%", font=font)[2] + 6
 
     fill = (arr == np.array(draw.TEXT_BACK)).all(axis=2)
     longest = max(longest_run(row) for row in fill)
@@ -198,9 +199,9 @@ def test_box_label_never_runs_off_the_frame():
 
 
 def test_box_label_shows_only_index_and_probability():
-    """The preview label stays short: `#n · p x.xxx`; everything else is in the list."""
-    assert draw._label_text(1, SCORED[1]) == "#1 · p 0.612"
-    assert draw._label_text(0, SCORED[0]) == "#0 · p 0.874"
+    """The preview label stays short: `#n · p xx.x %`; everything else is in the list."""
+    assert draw._label_text(1, SCORED[1]) == "#1 · p 61.2%"
+    assert draw._label_text(0, SCORED[0]) == "#0 · p 87.4%"
     assert draw._label_text(2, None) == "#2 · p -"
     assert "rank" not in draw._label_text(1, SCORED[1])
     assert "tok" not in draw._label_text(1, SCORED[1])

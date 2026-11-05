@@ -92,6 +92,12 @@ STRINGS = {
         "model_loaded": "模型已載入：{name}",
         "model_load_failed": "模型載入失敗：{error}",
         "model_not_runnable": "呢個 model 唔可以喺呢個 program 執行 — {note}",
+        "model_details": "模型資料",
+        "md_name": "名稱", "md_file": "檔案", "md_location": "位置",
+        "md_role": "類型／角色假設", "md_blocks": "Layer blocks", "md_input": "輸入",
+        "md_head": "Head 輸出", "md_bytes": "Body bytes", "md_params": "fp16 參數 words",
+        "md_sha": "SHA-256", "md_runnable": "可執行", "md_boxes": "可出框",
+        "md_yes": "係", "md_no": "冇", "md_source": "來源",
         "run_header": "=== 執行 {name} → {output} ===",
         "cancelled": "要求取消 …",
         "job_cancelled": "已取消 / cancelled",
@@ -156,6 +162,12 @@ STRINGS = {
         "model_loaded": "Model loaded: {name}",
         "model_load_failed": "Model load failed: {error}",
         "model_not_runnable": "This model cannot run in this program — {note}",
+        "model_details": "Model data",
+        "md_name": "Name", "md_file": "File", "md_location": "Location",
+        "md_role": "Type / role hypothesis", "md_blocks": "Layer blocks", "md_input": "Input",
+        "md_head": "Head output", "md_bytes": "Body bytes", "md_params": "fp16 param words",
+        "md_sha": "SHA-256", "md_runnable": "Runnable", "md_boxes": "Detection boxes",
+        "md_yes": "yes", "md_no": "no", "md_source": "Source",
         "run_header": "=== run {name} → {output} ===",
         "cancelled": "Cancellation requested …",
         "job_cancelled": "Cancelled",
@@ -293,7 +305,16 @@ class App(tk.Tk):
         self.model_combo.pack(fill="x", pady=(4, 2))
         self.model_note = ttk.Label(controls, text=model_registry.find(self.model_key).note,
                                     wraplength=300, foreground="#666")
-        self.model_note.pack(anchor="w", pady=(0, 8))
+        self.model_note.pack(anchor="w", pady=(0, 4))
+        # full model data: identity by hash first, then everything the verified
+        # table knows about this body (blocks, input, head, provenance, flags)
+        ttk.Label(controls, text=self._t("model_details"),
+                  style="Heading.TLabel").pack(anchor="w")
+        self.model_details = tk.Text(controls, height=11, width=44, wrap="word",
+                                     state="disabled", relief="solid", bd=1,
+                                     background="#fbfbfb", font=("TkFixedFont", 8))
+        self.model_details.pack(fill="x", pady=(2, 8))
+        self._show_model_details(self.model_key)
 
         # engine settings
         ttk.Label(controls, text=self._t("section_settings"), style="Heading.TLabel").pack(anchor="w")
@@ -504,6 +525,7 @@ class App(tk.Tk):
         self.model_key = next(key for key, name in model_registry.labels() if name == label)
         spec = model_registry.find(self.model_key)
         self.model_note.config(text=spec.note)
+        self._show_model_details(self.model_key)
         self.model = None
         # Selecting a model loads the exact file it names, right now — the
         # file name shown in the list is the file that gets loaded (identity
@@ -519,6 +541,39 @@ class App(tk.Tk):
         threading.Thread(target=self._load_selected_model,
                          args=(spec, threads, decoder_mode),
                          name="model-load", daemon=True).start()
+
+    def _show_model_details(self, key: str) -> None:
+        """All known data about the selected model: identity by content hash,
+        plus everything the verified body table says (blocks, input, head,
+        provenance) and the file exactly as it sits on disk right now.  A
+        role marked 'hypothesis' is never presented as fact."""
+        if not hasattr(self, "model_details"):
+            return
+        spec = model_registry.find(key)
+        d = spec.details
+
+        def fmt(value):
+            return format(value, ",") if isinstance(value, int) else (value or "—")
+
+        lines = [
+            f"{self._t('md_name')}: {spec.label.split(' — ')[0]}",
+            f"{self._t('md_file')}: {fmt(d.get('filename'))}",
+            f"{self._t('md_location')}: {fmt(d.get('found_at') or d.get('path'))}",
+            f"{self._t('md_role')}: {fmt(d.get('role'))}",
+            f"{self._t('md_blocks')}: {fmt(d.get('blocks'))}",
+            f"{self._t('md_input')}: {fmt(d.get('input'))}",
+            f"{self._t('md_head')}: {fmt(d.get('head'))}",
+            f"{self._t('md_bytes')}: {fmt(d.get('bytes'))}",
+            f"{self._t('md_params')}: {fmt(d.get('fp16_words'))}",
+            f"{self._t('md_sha')}: {fmt(d.get('sha256'))}",
+            f"{self._t('md_runnable')}: {self._t('md_yes') if spec.runnable else self._t('md_no')}",
+            f"{self._t('md_boxes')}: {self._t('md_yes') if spec.decodable else self._t('md_no')}",
+            f"{self._t('md_source')}: {fmt(d.get('source'))}",
+        ]
+        self.model_details.config(state="normal")
+        self.model_details.delete("1.0", "end")
+        self.model_details.insert("1.0", "\n".join(lines))
+        self.model_details.config(state="disabled")
 
     def _load_selected_model(self, spec, threads: int, decoder_mode: str) -> None:
         try:
@@ -578,7 +633,7 @@ class App(tk.Tk):
                 return 0
         if column == "p":
             try:
-                return float(raw)
+                return float(str(raw).rstrip("%"))     # shown as 0–100 %
             except ValueError:
                 return -1.0
         try:
@@ -629,7 +684,7 @@ class App(tk.Tk):
                 "", "end", iid=str(index),
                 values=(
                     index, int(cls), int(score),
-                    f"{float(combined):.3f}" if combined is not None else "-",
+                    f"{100.0 * float(combined):.1f}%" if combined is not None else "-",
                     scored.get("token") if scored.get("token") is not None else "-",
                     scored.get("slot") if scored.get("slot") is not None else "-",
                     f"{int(x)},{int(y)} {int(w)}x{int(h)}",
@@ -901,9 +956,17 @@ def selftest(path: str | None):
         assert app.model is not None and app.model.key == "z8-net7", \
             f"selecting NET7 must auto-load its file: status={app._status_text!r}"
         print(f"selftest: NET7 auto-loaded from {app.model.path.name}")
+        # the model-data panel must show everything known about this body:
+        # hash identity, file, geometry, head, flags — hypothesis roles only as hypotheses
+        detail_text = app.model_details.get("1.0", "end")
+        for needle in ("NET7", "NET7_body.bin", "66a34f24", "889", "384x256x3"):
+            assert needle in detail_text, f"model data panel missing {needle!r}: {detail_text}"
         app.model_combo.current(0)
         app._model_changed()
         assert str(app.run_button["state"]) == "normal"
+        detail_text = app.model_details.get("1.0", "end")
+        for needle in ("resource744.body.bin", "e8d371e7", "engine-verified"):
+            assert needle in detail_text, f"model data panel missing {needle!r}: {detail_text}"
         app.model = None
 
     if path:
@@ -927,6 +990,9 @@ def selftest(path: str | None):
         app.update()
         rows = [c for c in app.tree.get_children() if str(c).isdigit()]
         assert len(rows) == 2, app.tree.get_children()
+        # probabilities display as 0–100 %, not 0.000–1.000
+        assert app.tree.item("0")["values"][3] == "87.4%", app.tree.item("0")["values"]
+        assert app.tree.item("1")["values"][3] == "61.2%", app.tree.item("1")["values"]
         assert ("af" in app.tree.get_children()) == (app._af_box is not None), \
             f"AF row must appear exactly for NEF sources: {app.tree.get_children()}"
         if app.info.kind == "nef":

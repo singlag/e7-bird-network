@@ -18,7 +18,8 @@ has a published decode contract, so they load/verify but cannot produce boxes.
 import e7model
 import e7netmodel
 import model_files
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Optional
 
 
@@ -30,15 +31,35 @@ class ModelSpec:
     factory: Optional[Callable[..., object]]
     decodable: bool = True     # can produce detection boxes (published decode contract)
     runnable: bool = True      # loads / runs through the emulator at all
+    details: dict = field(default_factory=dict)   # full model data for the UI panel
+
+
+def _details_for(key: str, path: Path, sha: str, meta: dict) -> dict:
+    """Everything the model-data panel shows: the verified table entry plus
+    the file exactly as it exists on disk right now."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = None
+    return {
+        "filename": path.name, "path": str(path), "sha256": sha,
+        "bytes": size, "fp16_words": (size // 2 if size else None),
+        "blocks": meta.get("blocks"), "input": meta.get("input"),
+        "head": meta.get("head"), "role": meta.get("role"),
+        "source": meta.get("source"), "found_at": str(path.parent),
+    }
 
 
 def _built_in_specs() -> list[ModelSpec]:
+    sha, meta = model_files.table_for_key(e7model.E7BirdModel.key)
     return [
         ModelSpec(
             key=e7model.E7BirdModel.key,
             label=f"{e7model.E7BirdModel.label} — {model_files.BUILT_IN_BODY.name}",
             note=e7model.E7BirdModel.note,
             factory=lambda **kw: e7model.E7BirdModel(**kw),
+            details=_details_for(e7model.E7BirdModel.key,
+                                 model_files.BUILT_IN_BODY, sha or "", meta or {}),
         ),
     ]
 
@@ -72,6 +93,11 @@ def _discovered_specs() -> list[ModelSpec]:
             factory=factory,
             decodable=False,
             runnable=meta["runnable"] and not meta.get("unidentified", False),
+            details=(_details_for(meta["key"], meta["path"], meta["sha256"], meta)
+                     if meta.get("sha256") in model_files.KNOWN_BODIES else
+                     {"filename": meta["filename"], "path": str(meta["path"]),
+                      "sha256": meta.get("sha256"),
+                      "role": "unidentified — SHA-256 not in the verified table"}),
         ))
     return specs
 
