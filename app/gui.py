@@ -31,6 +31,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -88,6 +89,9 @@ STRINGS = {
         "preview_video": "預覽：影片第 0 幀。取樣計劃：每秒取 {per_second} 幀（stride {stride}），最多處理 {planned} 幀（cap = min(60, fps)）",
         "select_input_first": "請先選擇輸入檔案",
         "running": "執行中 …",
+        "model_loaded": "模型已載入：{name}",
+        "model_load_failed": "模型載入失敗：{error}",
+        "model_not_runnable": "呢個 model 唔可以喺呢個 program 執行 — {note}",
         "run_header": "=== 執行 {name} → {output} ===",
         "cancelled": "要求取消 …",
         "job_cancelled": "已取消 / cancelled",
@@ -149,6 +153,9 @@ STRINGS = {
         "preview_video": "Preview: video frame 0. Sampling: {per_second} frames/sec (stride {stride}), at most {planned} frames (cap = min(60, fps))",
         "select_input_first": "Pick an input file first",
         "running": "Running …",
+        "model_loaded": "Model loaded: {name}",
+        "model_load_failed": "Model load failed: {error}",
+        "model_not_runnable": "This model cannot run in this program — {note}",
         "run_header": "=== run {name} → {output} ===",
         "cancelled": "Cancellation requested …",
         "job_cancelled": "Cancelled",
@@ -495,8 +502,35 @@ class App(tk.Tk):
     def _model_changed(self, event=None):
         label = self.model_combo.get()
         self.model_key = next(key for key, name in model_registry.labels() if name == label)
-        self.model = None  # rebuilt lazily on run
-        self.model_note.config(text=model_registry.find(self.model_key).note)
+        spec = model_registry.find(self.model_key)
+        self.model_note.config(text=spec.note)
+        self.model = None
+        # Selecting a model loads the exact file it names, right now — the
+        # file name shown in the list is the file that gets loaded (identity
+        # comes from the content hash, never from the name).
+        can_run = spec.decodable and spec.runnable
+        self.run_button.config(state="normal" if can_run else "disabled")
+        if not spec.runnable:
+            self._set_status(self._t("model_not_runnable", note=spec.note))
+            return
+        # Tk variables may only be read on the main thread: snapshot now.
+        threads = int(self.threads_var.get())
+        decoder_mode = self.decoder_var.get()
+        threading.Thread(target=self._load_selected_model,
+                         args=(spec, threads, decoder_mode),
+                         name="model-load", daemon=True).start()
+
+    def _load_selected_model(self, spec, threads: int, decoder_mode: str) -> None:
+        try:
+            model = model_registry.build(spec.key, threads=threads,
+                                        decoder_mode=decoder_mode)
+            model.load(log=lambda message: self.events.put(("log", message)))
+        except Exception:
+            self.model = None
+            self.events.put(("model_load_failed", traceback.format_exc()))
+            return
+        self.model = model
+        self.events.put(("model_loaded", spec.label))
 
     # ----------------------------------------------------------------- stage
     def _set_frame(self, raw, mapped, scored, crop):
@@ -750,6 +784,11 @@ class App(tk.Tk):
                 elif kind == "error":
                     self._log(payload)
                     self._finish(None, payload.strip().splitlines()[-1])
+                elif kind == "model_load_failed":
+                    self._set_status(self._t("model_load_failed",
+                                             error=payload.strip().splitlines()[-1]))
+                elif kind == "model_loaded":
+                    self._set_status(self._t("model_loaded", name=payload))
         except queue.Empty:
             pass
         try:
@@ -808,7 +847,8 @@ class App(tk.Tk):
 
     def _finish(self, result, error):
         self.running = False
-        self.run_button.config(state="normal")
+        spec = model_registry.find(self.model_key)
+        self.run_button.config(state="normal" if spec.decodable and spec.runnable else "disabled")
         self.cancel_button.config(state="disabled")
         if error:
             self._set_status(self._t("failed", error=error))
@@ -837,6 +877,35 @@ def selftest(path: str | None):
     app.update_idletasks()
     app.update()
     assert app.title() == WINDOW_TITLE, app.title()
+
+    # model list: every row carries the file name it loads, and selecting a
+    # model auto-loads that exact file (identity by content hash, name is
+    # decoration); networks without a decode contract stay listed but disabled.
+    pairs = model_registry.labels()
+    assert any("resource744.body.bin" in label for _, label in pairs), pairs
+    for key, label in pairs:
+        if key != model_registry.default_key() and not key.startswith("unknown:"):
+            file_part = label.split(" — ", 1)
+            assert len(file_part) == 2 and file_part[1].endswith(".bin"), \
+                f"model rows must show the file name: {label}"
+    if any(k == "z8-net7" for k, _ in pairs):
+        idx = [k for k, _ in pairs].index("z8-net7")
+        app.model_combo.current(idx)
+        app._model_changed()
+        assert str(app.run_button["state"]) == "disabled", \
+            "no decode contract → run must be disabled"
+        deadline = time.time() + 120
+        while time.time() < deadline and app.model is None:
+            app.update()
+            time.sleep(0.05)
+        assert app.model is not None and app.model.key == "z8-net7", \
+            f"selecting NET7 must auto-load its file: status={app._status_text!r}"
+        print(f"selftest: NET7 auto-loaded from {app.model.path.name}")
+        app.model_combo.current(0)
+        app._model_changed()
+        assert str(app.run_button["state"]) == "normal"
+        app.model = None
+
     if path:
         app.set_source(Path(path))
         app.update()

@@ -1,0 +1,123 @@
+"""Model file discovery by content hash — file names carry no meaning here.
+
+Model bodies live in `<repo>/models/`.  A file is identified by its SHA-256
+against the verified Z8 body table (`references/model_backends_and_z8_models.md`
+inventory; every hash measured in-session, never trusted from a sidecar).
+The on-disk file name is irrelevant to identity — any name works — but it is
+surfaced in the model list so the user can see which file a row loads.
+
+Distribution: the firmware blobs are not committed to this repo; the user
+copies them into `models/` from the Z8 extraction (~/Documents/Z8/...).
+"""
+
+import hashlib
+from pathlib import Path
+from typing import Optional
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MODELS_DIR = REPO_ROOT / "models"
+
+# sha256 -> identity.  `runnable` = the body parses and replays through the
+# emulator as a network; `decodable` = a published decode contract (consumer
+# table / rank anchors) exists so it can produce detection boxes.  role_hypothesis
+# is unverified (Z8 model IDs do not appear in firmware; hypothesis-level).
+KNOWN_BODIES: dict[str, dict] = {
+    "e8d371e77efc3035d0c633c8c90aa4851f1675e5abcf7999edb23adc6439722b": {
+        "key": "e7-bird-resource744", "name": "BIRD (resource744)",
+        "runnable": True, "decodable": True, "role": "bird detector, proven",
+        "built_in": True,
+    },
+    "1c3e9753aaf23635b033ad15be3505ae1fdc9477e53363eb302e7954bc2fbbad": {
+        "key": "z8-net1", "name": "NET1", "runnable": False, "decodable": False,
+        "role": "hypothesis only; parsing fails on unresolved 0x3c8f1/0x3c921/0x3c933",
+    },
+    "8b0a5ca5cf5c9aba3b11362766cd778f38948eb1de948968a9bee205796442aa": {
+        "key": "z8-net2", "name": "NET2", "runnable": False, "decodable": False,
+        "role": "hypothesis only; 32x32 input, parsing fails on unresolved ops",
+    },
+    "373cd288cb60130ad74694635a0917906d60e0326eb674fd41210aa154f1d586": {
+        "key": "z8-net3", "name": "NET3", "runnable": False, "decodable": False,
+        "role": "hypothesis only; parsing fails on unresolved ops",
+    },
+    "2cd4c959add30076c872a36d4275ebc8e102c469b405a9e034476c0872fac4d0": {
+        "key": "z8-net4", "name": "NET4", "runnable": True, "decodable": False,
+        "role": "bird hypothesis (strongest: 53% coverage, head layout matches)",
+    },
+    "67e8ff4a578200a9a94f67b27bf49a9e5f29497180d980d71812b72d2457dd34": {
+        "key": "z8-net6", "name": "NET6", "runnable": True, "decodable": False,
+        "role": "subject detector (hypothesis-level)",
+    },
+    "66a34f2456804699256b3c9d79da3bb241e2d5b617877b18948c37bdd898d32d": {
+        "key": "z8-net7", "name": "NET7", "runnable": True, "decodable": False,
+        "role": "scene classifier (hypothesis-level)",
+    },
+    "ba0574da3aa0e79f72e2e2d1c38f6e6ae80bd1c1ed27061acfc5dd44585407cc": {
+        "key": "z8-net8", "name": "NET8", "runnable": False, "decodable": False,
+        "role": "global classifier; parsing fails on unresolved ops",
+    },
+    "fd35487517b86de748fd01b581b37a72bb33faefd0b1ac740a965eb70952ba2e": {
+        "key": "z8-net9", "name": "NET9", "runnable": True, "decodable": False,
+        "role": "hypothesis-level; pooling handler unverified, and GT "
+                "enrichment scored it null-like (obs 6.61 < null mean 17.60)",
+    },
+}
+
+# the built-in model is loaded by core.py from the repo root — it does not
+# need a copy under models/, and a matching file there is a duplicate, not a
+# second entry.
+BUILT_IN_BODY = REPO_ROOT / "resource744.body.bin"
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def identify(path: Path) -> Optional[dict]:
+    """Identity for a body file, or None if it is not a known Z8 body."""
+    meta = KNOWN_BODIES.get(sha256_of(path))
+    if meta is None:
+        return None
+    return {**meta, "path": path, "filename": path.name}
+
+
+def discover(models_dir: Path = MODELS_DIR) -> list[dict]:
+    """Scan `models_dir` for .bin bodies; one entry per distinct body.
+
+    Files with a known hash collapse onto their identity (duplicates are
+    reported under `extra_files`); unknown files are still listed so the user
+    can see what is sitting in the folder, flagged as unidentified.
+    """
+    known: dict[str, dict] = {}
+    unknown: list[dict] = []
+    if not models_dir.is_dir():
+        return []
+    for path in sorted(models_dir.glob("*.bin")):
+        meta = identify(path)
+        if meta is None:
+            unknown.append({"key": f"unknown:{path.name}", "name": path.name,
+                            "runnable": False, "decodable": False,
+                            "role": "unidentified file — its SHA-256 is not in "
+                                    "the verified Z8 body table",
+                            "path": path, "filename": path.name,
+                            "unidentified": True})
+            continue
+        if meta.get("built_in"):
+            entry = known.get(meta["key"])
+            if entry is not None:
+                entry["extra_files"].append(path.name)
+            continue
+        entry = known.get(meta["key"])
+        if entry is None:
+            meta["extra_files"] = []
+            known[meta["key"]] = meta
+        else:
+            entry["extra_files"].append(path.name)
+    order = ["z8-net1", "z8-net2", "z8-net3", "z8-net4", "z8-net6",
+             "z8-net7", "z8-net8", "z8-net9"]
+    out = [known[k] for k in order if k in known]
+    out.extend(unknown)
+    return out
