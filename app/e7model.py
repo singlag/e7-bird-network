@@ -1,8 +1,11 @@
-"""E7 bird model adapter.
+"""NET5 / E7 bird model adapter.
 
 The model itself is the untouched upstream package (`network.py` + `core.py` +
-`resource744.body.bin` + `commands.json`): original weights, original command
-order, `weights_modified: false`.  This adapter only wraps it for the GUI:
+body + `commands.json`): original weights, original command order,
+`weights_modified: false`.  The body is the Z8-extracted BIRD_body.bin placed
+at the repo root as NET5_body.bin (byte-identical to the shipped
+resource744.body.bin — same SHA-256; core.py falls back to the original when
+NET5_body.bin is absent).  This adapter only wraps it for the GUI:
 load once, feed 3:2 frames, return heads and decoded candidate boxes.
 """
 
@@ -36,10 +39,14 @@ def consumer_table(root: Path = REPO_ROOT) -> bytes:
 
 
 class E7BirdModel:
-    key = "e7-bird-resource744"
-    label = "E7 Bird Network (resource744)"
+    key = "z8-net5"
+    label = "NET5 (BIRD)"
+    decodable = True           # published decode contract: consumer table + ranks
+    runnable = True
     note = (
-        "Nikon E7 resource744 bird detector, original weights and command order. "
+        "Nikon E7 NET5 (BIRD) bird detector, original weights and command order. "
+        "Body = Z8 BIRD_body.bin at the repo root as NET5_body.bin (same bytes as "
+        "the shipped resource744.body.bin, SHA-256 verified). "
         "Input: u8 planar[3,256,384] (3:2). Output: fine[22,16,24] + coarse[33,8,12] "
         "half bit patterns, decoded to candidate boxes."
     )
@@ -59,7 +66,7 @@ class E7BirdModel:
         if self.network is not None:
             return
         started = time.monotonic()
-        log("載入模型（torch + resource744 body）…")
+        log("載入模型（torch + NET5_body.bin）…")
         import torch  # imported here so the GUI can report a clear missing-dependency error
 
         torch.set_num_threads(self.threads)

@@ -95,7 +95,13 @@ class PhysicalStream:
         manifest=json.loads((ROOT/'manifest.json').read_text())
         for name,pin in manifest['files'].items():
             assert hashlib.sha256((ROOT/name).read_bytes()).hexdigest()==pin,name
-        data=json.loads((ROOT/'commands.json').read_text());raw=(ROOT/'resource744.body.bin').read_bytes()
+        data=json.loads((ROOT/'commands.json').read_text())
+        # The body lives at the repo root as NET5_body.bin — the same model as
+        # the Z8 extraction's BIRD_body.bin (byte-identical, SHA-256 match).
+        # resource744.body.bin stays as the manifest-pinned original and is the
+        # fallback whenever NET5_body.bin has not been placed next to it.
+        body=ROOT/'NET5_body.bin'
+        raw=(body if body.exists() else ROOT/'resource744.body.bin').read_bytes()
         assert hashlib.sha256(raw).hexdigest()==data['body_sha256']
         self.events=data['events'];self.audit=data['audit'];self.policy=dict(POLICY)
         self.activations={int(k):v for k,v in data['activations'].items()}

@@ -1,11 +1,11 @@
 """A Z8 NN body loaded from `models/` by content hash.
 
-This adapter proves the selected file loads: the emulator parses and disassembles
-the body (model_bin full-body coverage through core.PhysicalStream.from_body).
+This adapter loads *and runs* the selected file: the emulator parses and
+disassembles the body (model_bin full-body coverage through
+core.PhysicalStream.from_body) and `infer()` replays frames through it.
 None of these networks has a published decode contract (consumer table, rank
-anchors), so they cannot produce detection boxes — running them for boxes is
-disabled in the GUI with the reason stated.  Network replay through the
-emulator itself is exercised by `run_bodies.py` / the GT analysis scripts.
+anchors), so they cannot produce detection boxes — the job runs inference and
+saves heads (`.npz`) instead, and the GUI states that in the model note.
 """
 
 import sys
@@ -61,4 +61,31 @@ class Z8NetModel:
             "loaded": self.stream is not None,
             "decodable": False,
             "role": self.role,
+        }
+
+    def infer(self, encoded: bytes, include_workspace: bool = False) -> dict:
+        """Replay one u8 CHW frame through the parsed body.
+
+        Same input conversion as `run_bodies.py` (u8 planar / 256 → f32).  The
+        heads are returned as numpy arrays so `--save-heads` can write them;
+        there is no decode contract, so no head buffer for a box decoder.
+        """
+        import hashlib
+        import numpy as np
+        import torch
+
+        if self.stream is None:
+            self.load()
+        started = time.monotonic()
+        pixels = torch.from_numpy(
+            np.frombuffer(encoded, np.uint8).reshape(1, 3, 256, 384).astype(np.float32) / 256)
+        with torch.inference_mode():
+            outputs = self.stream(pixels)
+        heads = {f"head{index}": tensor.detach().numpy()
+                 for index, tensor in enumerate(outputs)}
+        return {
+            "heads": heads,
+            "head_buffer": None,        # no published decode contract
+            "input_sha256": hashlib.sha256(encoded).hexdigest(),
+            "seconds": time.monotonic() - started,
         }

@@ -92,6 +92,13 @@ def run_job(
 
     model.load(log=log)
     status = model.status()
+    # Models without a published decode contract (Z8 NET bodies) still run:
+    # inference replays and heads can be saved — there is simply nothing that
+    # turns their head planes into candidate boxes.
+    decodable = bool(getattr(model, "decodable", True))
+    if not decodable:
+        log("呢個 model 冇 published decode contract：只做推論、唔出框；"
+            "想保留輸出請勾「儲存 heads (.npz)」。")
 
     exports: list = []
     per_frame: list = []
@@ -114,7 +121,11 @@ def run_job(
             crop = pipeline.crop_to_target(image.width, image.height)
             encoded = pipeline.encode(image, crop)
         inference = model.infer(encoded, include_workspace=save_heads)
-        report = model.decode(inference["head_buffer"])
+        if decodable:
+            report = model.decode(inference["head_buffer"])
+        else:
+            report = {"records": [], "status": "no-decode-contract",
+                      "visited": 0, "accepted": 0, "backend": "none"}
         mapped = draw.map_records(report["records"], crop)
         # token / slot / combined probability per row: the 6-field result row only
         # carries the calibrated 0–1000 rank, which is not comparable across slots.

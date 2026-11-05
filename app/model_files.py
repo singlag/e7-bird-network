@@ -25,11 +25,15 @@ Z8_SOURCE = "extracted from Z8 firmware eg2070_0311b0.bi (inside Z_8_0311.dec)"
 
 KNOWN_BODIES: dict[str, dict] = {
     "e8d371e77efc3035d0c633c8c90aa4851f1675e5abcf7999edb23adc6439722b": {
-        "key": "e7-bird-resource744", "name": "BIRD (resource744)",
+        "key": "z8-net5", "name": "NET5 (BIRD)",
         "runnable": True, "decodable": True, "role": "bird detector, proven",
         "built_in": True, "blocks": 889, "input": "384x256x3 u8",
         "head": "fine 22ch 16x24 + coarse 33ch 8x12 (engine-verified)",
-        "source": "built into the upstream package (docs/model-provenance.json)",
+        "source": "upstream package body (docs/model-provenance.json, shipped as "
+                  "resource744.body.bin); at the repo root it is NET5_body.bin. "
+                  "Same model as the Z8 extraction's BIRD_body.bin — "
+                  "byte-identical, SHA-256 verified.",
+        "data_from": "/home/garykan/Documents/Z8/analysis/nn_models/BIRD_body.bin",
     },
     "1c3e9753aaf23635b033ad15be3505ae1fdc9477e53363eb302e7954bc2fbbad": {
         "key": "z8-net1", "name": "NET1", "runnable": False, "decodable": False,
@@ -91,10 +95,31 @@ def table_for_key(key: str) -> tuple[str, dict] | tuple[None, None]:
             return sha, dict(entry)
     return None, None
 
-# the built-in model is loaded by core.py from the repo root — it does not
-# need a copy under models/, and a matching file there is a duplicate, not a
-# second entry.
-BUILT_IN_BODY = REPO_ROOT / "resource744.body.bin"
+# The built-in body sits at the repo root as NET5_body.bin (the Z8
+# BIRD_body.bin, same bytes — SHA-256 verified).  It is not committed: it is a
+# duplicate of the manifest-pinned resource744.body.bin, so a fresh checkout
+# re-creates it from there under hash verification.  A matching file under
+# models/ is a duplicate, not a second entry.
+BUILT_IN_BODY = REPO_ROOT / "NET5_body.bin"
+BUILT_IN_ORIGINAL = REPO_ROOT / "resource744.body.bin"
+
+
+def ensure_builtin_body() -> Path:
+    """Return the root NET5_body.bin, re-creating it from the original body."""
+    if BUILT_IN_BODY.is_file():
+        if sha256_of(BUILT_IN_BODY) in KNOWN_BODIES:
+            return BUILT_IN_BODY
+        BUILT_IN_BODY.unlink()
+    raw = BUILT_IN_ORIGINAL.read_bytes()
+    if sha256_bytes(raw) not in KNOWN_BODIES:
+        raise ValueError("resource744.body.bin does not hash to the verified "
+                         "NET5/BIRD body — refusing to create NET5_body.bin")
+    BUILT_IN_BODY.write_bytes(raw)
+    return BUILT_IN_BODY
+
+
+def sha256_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
 
 
 def sha256_of(path: Path) -> str:

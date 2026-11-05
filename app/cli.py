@@ -63,17 +63,14 @@ def main(argv=None):
         return 2
     output = Path(args.output).expanduser() if args.output else source.with_name(source.stem + "-e7-out")
 
-    model = model_registry.build(args.model, threads=args.threads, decoder_mode=args.decoder)
     spec = model_registry.find(args.model)
-    if not spec.decodable:
-        # The file was found by hash and loads/verifies, but this network has
-        # no published decode contract — say so and stop before any job.
-        model.load(log=print)
-        print(json.dumps({"model": spec.label, "loaded": True, "decodable": False,
-                          "reason": "no published decode contract — cannot "
-                                    "produce detection boxes"},
-                         ensure_ascii=False))
+    if spec.factory is None:
+        # The file was found by hash but the emulator cannot fully parse this
+        # body — say so and stop before any job.
+        print(json.dumps({"model": spec.label, "loaded": False, "runnable": False,
+                          "reason": spec.note}, ensure_ascii=False))
         return 0
+    model = model_registry.build(args.model, threads=args.threads, decoder_mode=args.decoder)
     result = job.run_job(
         model,
         source,

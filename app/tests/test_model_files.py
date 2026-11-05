@@ -46,10 +46,13 @@ def test_discover_lists_files_and_flags_unknown(tmp_path):
 
 def test_registry_labels_show_file_names():
     labels = dict(model_registry.labels())
-    assert any("resource744.body.bin" in v for k, v in labels.items()
-               if k == model_registry.default_key())
+    assert any("NET5_body.bin" in v for k, v in labels.items()
+               if k == model_registry.default_key()), \
+        "built-in NET5 row must name NET5_body.bin"
+    builtin = model_registry.find(model_registry.default_key())
+    assert builtin.runnable and builtin.decodable, "NET5 is the full model"
     for key, label in labels.items():
-        if key.startswith("z8-net"):
+        if key.startswith("z8-net") and key != model_registry.default_key():
             assert " — " in label and label.split(" — ", 1)[1].endswith(".bin"), label
             assert model_registry.find(key).decodable is False
 

@@ -98,6 +98,7 @@ STRINGS = {
         "md_head": "Head 輸出", "md_bytes": "Body bytes", "md_params": "fp16 參數 words",
         "md_sha": "SHA-256", "md_runnable": "可執行", "md_boxes": "可出框",
         "md_yes": "係", "md_no": "冇", "md_source": "來源",
+        "md_data": "Model data 來源",
         "run_header": "=== 執行 {name} → {output} ===",
         "cancelled": "要求取消 …",
         "job_cancelled": "已取消 / cancelled",
@@ -168,6 +169,7 @@ STRINGS = {
         "md_head": "Head output", "md_bytes": "Body bytes", "md_params": "fp16 param words",
         "md_sha": "SHA-256", "md_runnable": "Runnable", "md_boxes": "Detection boxes",
         "md_yes": "yes", "md_no": "no", "md_source": "Source",
+        "md_data": "Model data taken from",
         "run_header": "=== run {name} → {output} ===",
         "cancelled": "Cancellation requested …",
         "job_cancelled": "Cancelled",
@@ -259,8 +261,8 @@ class App(tk.Tk):
     # ------------------------------------------------------------------- UI
     def _build_ui(self):
         self.title(WINDOW_TITLE)
-        self.geometry("1500x840")
-        self.minsize(1040, 660)
+        self.geometry("1760x990")
+        self.minsize(1280, 720)
 
         style = ttk.Style(self)
         if "clam" in style.theme_names():
@@ -310,7 +312,7 @@ class App(tk.Tk):
         # table knows about this body (blocks, input, head, provenance, flags)
         ttk.Label(controls, text=self._t("model_details"),
                   style="Heading.TLabel").pack(anchor="w")
-        self.model_details = tk.Text(controls, height=11, width=44, wrap="word",
+        self.model_details = tk.Text(controls, height=18, width=44, wrap="word",
                                      state="disabled", relief="solid", bd=1,
                                      background="#fbfbfb", font=("TkFixedFont", 8))
         self.model_details.pack(fill="x", pady=(2, 8))
@@ -530,7 +532,7 @@ class App(tk.Tk):
         # Selecting a model loads the exact file it names, right now — the
         # file name shown in the list is the file that gets loaded (identity
         # comes from the content hash, never from the name).
-        can_run = spec.decodable and spec.runnable
+        can_run = spec.runnable
         self.run_button.config(state="normal" if can_run else "disabled")
         if not spec.runnable:
             self._set_status(self._t("model_not_runnable", note=spec.note))
@@ -559,6 +561,10 @@ class App(tk.Tk):
             f"{self._t('md_name')}: {spec.label.split(' — ')[0]}",
             f"{self._t('md_file')}: {fmt(d.get('filename'))}",
             f"{self._t('md_location')}: {fmt(d.get('found_at') or d.get('path'))}",
+        ]
+        if d.get("data_from"):
+            lines.append(f"{self._t('md_data')}: {d['data_from']}")
+        lines += [
             f"{self._t('md_role')}: {fmt(d.get('role'))}",
             f"{self._t('md_blocks')}: {fmt(d.get('blocks'))}",
             f"{self._t('md_input')}: {fmt(d.get('input'))}",
@@ -903,7 +909,7 @@ class App(tk.Tk):
     def _finish(self, result, error):
         self.running = False
         spec = model_registry.find(self.model_key)
-        self.run_button.config(state="normal" if spec.decodable and spec.runnable else "disabled")
+        self.run_button.config(state="normal" if spec.runnable else "disabled")
         self.cancel_button.config(state="disabled")
         if error:
             self._set_status(self._t("failed", error=error))
@@ -937,7 +943,7 @@ def selftest(path: str | None):
     # model auto-loads that exact file (identity by content hash, name is
     # decoration); networks without a decode contract stay listed but disabled.
     pairs = model_registry.labels()
-    assert any("resource744.body.bin" in label for _, label in pairs), pairs
+    assert any("NET5_body.bin" in label for _, label in pairs), pairs
     for key, label in pairs:
         if key != model_registry.default_key() and not key.startswith("unknown:"):
             file_part = label.split(" — ", 1)
@@ -947,8 +953,8 @@ def selftest(path: str | None):
         idx = [k for k, _ in pairs].index("z8-net7")
         app.model_combo.current(idx)
         app._model_changed()
-        assert str(app.run_button["state"]) == "disabled", \
-            "no decode contract → run must be disabled"
+        assert str(app.run_button["state"]) == "normal", \
+            "no decode contract → inference only, but run must be enabled"
         deadline = time.time() + 120
         while time.time() < deadline and app.model is None:
             app.update()
@@ -961,11 +967,19 @@ def selftest(path: str | None):
         detail_text = app.model_details.get("1.0", "end")
         for needle in ("NET7", "NET7_body.bin", "66a34f24", "889", "384x256x3"):
             assert needle in detail_text, f"model data panel missing {needle!r}: {detail_text}"
+        # a body the emulator cannot fully parse must stay run-disabled
+        if any(k == "z8-net1" for k, _ in pairs):
+            idx = [k for k, _ in pairs].index("z8-net1")
+            app.model_combo.current(idx)
+            app._model_changed()
+            assert str(app.run_button["state"]) == "disabled", \
+                "unparseable body → run must stay disabled"
         app.model_combo.current(0)
         app._model_changed()
         assert str(app.run_button["state"]) == "normal"
         detail_text = app.model_details.get("1.0", "end")
-        for needle in ("resource744.body.bin", "e8d371e7", "engine-verified"):
+        for needle in ("NET5 (BIRD)", "NET5_body.bin", "e8d371e7",
+                       "BIRD_body.bin", "engine-verified"):
             assert needle in detail_text, f"model data panel missing {needle!r}: {detail_text}"
         app.model = None
 

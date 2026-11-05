@@ -1,18 +1,22 @@
 """Available detection models.
 
-Built-in: the upstream E7 bird network from this repo — untouched package
-(`network.py` + `core.py` + `resource744.body.bin` + `commands.json`), original
-weights, original command order, `weights_modified: false`.  Its body file name
-is fixed by the upstream manifest pins; everything else in the list is found by
-scanning `<repo>/models/` **by content hash** — the on-disk file name carries
-no meaning and can be anything.  The model list shows the file name so the
-user can see which file each row loads; selecting a model makes the program
-load that exact file immediately (GUI: `_model_changed` → `model.load()`).
+Built-in: NET5 (BIRD) — the upstream E7 bird network of this repo, unchanged
+(`network.py` + `core.py` + body + `commands.json`), original weights, original
+command order, `weights_modified: false`.  Its body is the Z8-extracted
+BIRD_body.bin placed at the repo root as NET5_body.bin — byte-identical to the
+manifest-pinned resource744.body.bin (same SHA-256); `model_files.ensure_builtin_body()`
+re-creates it from the original on a fresh checkout.  Identity is always the
+content hash.  Everything else in the list is found by scanning `<repo>/models/`
+**by content hash** — the on-disk file name carries no meaning and can be
+anything.  The model list shows the file name so the user can see which file
+each row loads; selecting a model makes the program load that exact file
+immediately (GUI: `_model_changed` → `model.load()`).
 
 Z8 NET bodies are distribution-restricted firmware blobs: the user copies them
 into `models/` from the Z8 extraction.  Their roles are hypothesis-level
-(references/model_backends_and_z8_models.md), never claimed as fact, and none
-has a published decode contract, so they load/verify but cannot produce boxes.
+(references/model_backends_and_z8_models.md), never claimed as fact.  None has
+a published decode contract, so they run inference (replay, heads saveable) but
+produce no detection boxes.
 """
 
 import e7model
@@ -47,19 +51,20 @@ def _details_for(key: str, path: Path, sha: str, meta: dict) -> dict:
         "blocks": meta.get("blocks"), "input": meta.get("input"),
         "head": meta.get("head"), "role": meta.get("role"),
         "source": meta.get("source"), "found_at": str(path.parent),
+        "data_from": meta.get("data_from"),
     }
 
 
 def _built_in_specs() -> list[ModelSpec]:
+    body = model_files.ensure_builtin_body()   # NET5_body.bin at the repo root
     sha, meta = model_files.table_for_key(e7model.E7BirdModel.key)
     return [
         ModelSpec(
             key=e7model.E7BirdModel.key,
-            label=f"{e7model.E7BirdModel.label} — {model_files.BUILT_IN_BODY.name}",
+            label=f"{e7model.E7BirdModel.label} — {body.name}",
             note=e7model.E7BirdModel.note,
             factory=lambda **kw: e7model.E7BirdModel(**kw),
-            details=_details_for(e7model.E7BirdModel.key,
-                                 model_files.BUILT_IN_BODY, sha or "", meta or {}),
+            details=_details_for(e7model.E7BirdModel.key, body, sha or "", meta or {}),
         ),
     ]
 
