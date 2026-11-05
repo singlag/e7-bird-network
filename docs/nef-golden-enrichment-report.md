@@ -91,6 +91,7 @@ NNIN strip 訊號最強（10× PNG、6.5× synthetic fixture），但仍然全�
   （11,616 halves/case）、defined_workspace diffs 0（122,880 halves/case）、
   `decoder_equal` true、records [] 對晒 fixtures、integer add/multiply 119,687 checks
   0 differences。torch reproduction 喺 Windows 都係 bit-exact。
+- GUI 實測（同一機、同一 copy）：user 確認全流程 OK。
 
 ## 7. 限制（誠實列）
 
@@ -104,5 +105,5 @@ NNIN strip 訊號最強（10× PNG、6.5× synthetic fixture），但仍然全�
 ## 8. 下一步（體外決策）
 
 - 收更多有明確主體類別嘅 NEF（尤其 People）先再跑 class binding。
-- Windows GUI 實測（gate 已過；GUI 喺 Windows 行一次確認 UI 流程）。
+- ~~Windows GUI 實測~~ ✅ 已喺 Windows 行過 GUI，全流程 OK（2026-11-05）。
 - NET decode contract 如将来发表，先至可以俾 NET boxes。
