@@ -16,6 +16,7 @@ import draw
 import frames as frames_module
 import nef
 import pipeline
+import saliency
 import score
 
 
@@ -97,8 +98,9 @@ def run_job(
     # turns their head planes into candidate boxes.
     decodable = bool(getattr(model, "decodable", True))
     if not decodable:
-        log("呢個 model 冇 published decode contract：只做推論、唔出框；"
-            "想保留輸出請勾「儲存 heads (.npz)」。")
+        log("呢個 model 冇 published decode contract：唔行 decoder；想保留輸出請勾「儲存 heads (.npz)」。")
+        log("會用 fingerprint 研究驗證過嘅 salient obj 平面喺 preview 畫一個 saliency 粗框"
+            "（研究用途，唔係 decoder contract，類別列顯示 SAL）。")
 
     exports: list = []
     per_frame: list = []
@@ -124,8 +126,12 @@ def run_job(
         if decodable:
             report = model.decode(inference["head_buffer"])
         else:
-            report = {"records": [], "status": "no-decode-contract",
-                      "visited": 0, "accepted": 0, "backend": "none"}
+            frames_out = saliency.salient_records(inference.get("heads"),
+                                                  getattr(model, "key", None))
+            report = {"records": frames_out,
+                      "status": "saliency-frames" if frames_out else "no-decode-contract",
+                      "visited": len(frames_out), "accepted": len(frames_out),
+                      "backend": "saliency" if frames_out else "none"}
         mapped = draw.map_records(report["records"], crop)
         # token / slot / combined probability per row: the 6-field result row only
         # carries the calibrated 0–1000 rank, which is not comparable across slots.

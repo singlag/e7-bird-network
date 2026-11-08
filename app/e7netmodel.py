@@ -4,8 +4,10 @@ This adapter loads *and runs* the selected file: the emulator parses and
 disassembles the body (model_bin full-body coverage through
 core.PhysicalStream.from_body) and `infer()` replays frames through it.
 None of these networks has a published decode contract (consumer table, rank
-anchors), so they cannot produce detection boxes — the job runs inference and
-saves heads (`.npz`) instead, and the GUI states that in the model note.
+anchors), so they cannot produce decoder boxes — the job runs inference, saves
+heads (`.npz`) and draws one research-only saliency frame per frame from the
+studied objectness planes (see `saliency.py`); the GUI states this in the
+model note.
 """
 
 import sys
@@ -35,8 +37,10 @@ class Z8NetModel:
         self.label = f"{self.name} — {path.name}"
         self.note = (
             f"Z8 body, identified by SHA-256 (file name is not used). Role: "
-            f"{self.role}. Loading parses/disassembles the body; box output is "
-            "disabled because this network has no published decode contract."
+            f"{self.role}. Loading parses/disassembles the body. This network "
+            "has no published decode contract, so the decoder never runs; the "
+            "preview instead shows one research-only saliency frame built from "
+            "the external-sample objectness-plane study (class column: SAL)."
         )
         self.stream = None
 

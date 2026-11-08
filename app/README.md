@@ -84,6 +84,12 @@ source pixels, `crop_mode`, `decoder_status`), `heads-NNNNN.npz` (optional),
 with `#` comment lines explaining each column — readers should skip rows whose
 first field begins with `#`.
 
+NET4/6/7/9 have no published decode contract, so their runs show one
+research-only saliency frame per frame, drawn from the objectness plane that
+the external-sample study found significantly enriched inside camera-recorded
+subject boxes (see `saliency.py`; such rows carry `cls = -1` and appear as
+`SAL` in the list — never a decoder class).
+
 ## CLI
 
 Same pipeline without the window — handy for scripting or checking a headless box:
@@ -101,6 +107,7 @@ python app/tests/test_crop.py            # 3:2 crop rules, fast
 python app/tests/test_sampling.py        # stride / cap rules for video sampling
 python app/tests/test_score.py           # rank / token / slot / combined probability replay
 python app/tests/test_gui.py             # window title, language switch, box list, selected-box fade
+python app/tests/test_salient_boxes.py   # NET4/6/7/9 saliency frames: grid math, fallbacks, SAL rows
 python app/tests/test_decoder_parity.py  # port vs native library, needs a built/ bundled library
 python app/tests/test_e2e_fixture.py     # fixture input -> network heads -> decoder (~3 min/fixture on CPU)
 python app/gui.py --selftest path/to/file   # builds the window and loads the file, then exits

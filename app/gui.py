@@ -689,7 +689,10 @@ class App(tk.Tk):
             self.tree.insert(
                 "", "end", iid=str(index),
                 values=(
-                    index, int(cls), int(score),
+                    index,
+                    # -1 marks a research saliency frame, never a decoder class
+                    int(cls) if cls >= 0 else "SAL",
+                    int(score),
                     f"{100.0 * float(combined):.1f}%" if combined is not None else "-",
                     scored.get("token") if scored.get("token") is not None else "-",
                     scored.get("slot") if scored.get("slot") is not None else "-",
