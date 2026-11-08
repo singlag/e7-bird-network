@@ -26,7 +26,10 @@ Z8_SOURCE = "extracted from Z8 firmware eg2070_0311b0.bi (inside Z_8_0311.dec)"
 KNOWN_BODIES: dict[str, dict] = {
     "e8d371e77efc3035d0c633c8c90aa4851f1675e5abcf7999edb23adc6439722b": {
         "key": "z8-net5", "name": "NET5 (BIRD)",
-        "runnable": True, "decodable": True, "role": "bird detector, proven",
+        "runnable": True, "decodable": True,
+        "role": "SUBJECT DETECTION — proven, 6 classes: bird, person, car, "
+                "bicycle, airplane, wide-anchor bird (published decode "
+                "contract, engine-verified)",
         "built_in": True, "blocks": 889, "input": "384x256x3 u8",
         "head": "fine 22ch 16x24 + coarse 33ch 8x12 (engine-verified)",
         "source": "upstream package body (docs/model-provenance.json, shipped as "
@@ -37,50 +40,71 @@ KNOWN_BODIES: dict[str, dict] = {
     },
     "1c3e9753aaf23635b033ad15be3505ae1fdc9477e53363eb302e7954bc2fbbad": {
         "key": "z8-net1", "name": "NET1", "runnable": False, "decodable": False,
-        "role": "hypothesis only; parsing fails on unresolved 0x3c8f1/0x3c921/0x3c933",
+        "role": "subject type UNKNOWN — parsing fails on unresolved "
+                "0x3c8f1/0x3c921/0x3c933; 889-block sibling of BIRD but its "
+                "task is not established",
         "blocks": 889, "input": "384x256x3", "head": "12ch 8x8 coarse-only (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "8b0a5ca5cf5c9aba3b11362766cd778f38948eb1de948968a9bee205796442aa": {
         "key": "z8-net2", "name": "NET2", "runnable": False, "decodable": False,
-        "role": "hypothesis only; 32x32 input, parsing fails on unresolved ops",
+        "role": "SMALL-CROP SPECIALIST (hypothesis: face / body-part check): "
+                "32x32 crop input, 32ch head; parsing fails on unresolved ops",
         "blocks": 135, "input": "32x32 crop", "head": "32ch 32x2 (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "373cd288cb60130ad74694635a0917906d60e0326eb674fd41210aa154f1d586": {
         "key": "z8-net3", "name": "NET3", "runnable": False, "decodable": False,
-        "role": "hypothesis only; parsing fails on unresolved ops",
+        "role": "GLOBAL CLASSIFIER over 32x32 crops (hypothesis: scene or "
+                "subject-type class, 12 outputs); parsing fails on unresolved ops",
         "blocks": 192, "input": "32x32 crop", "head": "12ch 1x1 global classifier",
         "source": Z8_SOURCE,
     },
     "2cd4c959add30076c872a36d4275ebc8e102c469b405a9e034476c0872fac4d0": {
         "key": "z8-net4", "name": "NET4", "runnable": True, "decodable": False,
-        "role": "bird hypothesis (strongest: 53% coverage, head layout matches)",
+        "role": "GENERAL SUBJECT DETECTOR (bird-specific hypothesis refuted): "
+                "obj plane ch4/19 significantly enriched inside camera-recorded "
+                "subject boxes over vehicle/person/animal/airplane content "
+                "(n=92 NEF AFInfo2 GT boxes vs permutation null, p<=0.005). "
+                "Firmware geometry suggests 10 class slots; class names not "
+                "published.",
         "blocks": 709, "input": "384x256x3", "head": "24ch 16x30 (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "67e8ff4a578200a9a94f67b27bf49a9e5f29497180d980d71812b72d2457dd34": {
         "key": "z8-net6", "name": "NET6", "runnable": True, "decodable": False,
-        "role": "subject detector (hypothesis-level)",
+        "role": "SUBJECT DETECTOR: obj plane ch3/16 significantly enriched "
+                "inside camera-recorded subject boxes (n=92 GT, p<=0.0025). "
+                "Firmware geometry suggests 8 class slots; class names not "
+                "published.",
         "blocks": 691, "input": "384x256x3", "head": "24ch 16x26 (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "66a34f2456804699256b3c9d79da3bb241e2d5b617877b18948c37bdd898d32d": {
         "key": "z8-net7", "name": "NET7", "runnable": True, "decodable": False,
-        "role": "scene classifier (hypothesis-level)",
+        "role": "SUBJECT DETECTOR (earlier scene-classifier hypothesis "
+                "refuted): obj plane ch17/9/22 significantly enriched inside "
+                "camera-recorded subject boxes (n=92 GT, p<=0.0025). Firmware "
+                "geometry suggests 8 class slots; class names not published.",
         "blocks": 889, "input": "384x256x3", "head": "24ch 16x26 (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "ba0574da3aa0e79f72e2e2d1c38f6e6ae80bd1c1ed27061acfc5dd44585407cc": {
         "key": "z8-net8", "name": "NET8", "runnable": False, "decodable": False,
-        "role": "global classifier; parsing fails on unresolved ops",
+        "role": "WHOLE-FRAME CLASSIFIER (hypothesis: scene / subject-category, "
+                "7-output softmax — no per-cell boxes possible by design); "
+                "parsing fails on unresolved ops",
         "blocks": 786, "input": "384x256x3", "head": "7ch 1x1 softmax global classifier",
         "source": Z8_SOURCE,
     },
     "fd35487517b86de748fd01b581b37a72bb33faefd0b1ac740a965eb70952ba2e": {
         "key": "z8-net9", "name": "NET9", "runnable": True, "decodable": False,
-        "role": "hypothesis-level; pooling handler unverified, and GT "
-                "enrichment scored it null-like (obs 6.61 < null mean 17.60)",
+        "role": "SUBJECT DETECTOR specialised for tracked subjects: obj plane "
+                "ch8 significantly enriched inside the camera's 3D-tracking "
+                "subject frames (n=43 GT, p=0.015) and AF frames (n=92, "
+                "p=0.02). Firmware geometry suggests 7 class slots; class "
+                "names not published. Deepest body (1044 blocks) with a "
+                "unique 2x2 pooling record family (handler hypothesis-level).",
         "blocks": 1044, "input": "384x256x3",
         "head": "24ch 16x24 (axis-inferred); unique 2x2 pooling record family",
         "source": Z8_SOURCE,
