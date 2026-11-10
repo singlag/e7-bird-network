@@ -62,30 +62,33 @@ KNOWN_BODIES: dict[str, dict] = {
     },
     "2cd4c959add30076c872a36d4275ebc8e102c469b405a9e034476c0872fac4d0": {
         "key": "z8-net4", "name": "NET4", "runnable": True, "decodable": False,
-        "role": "GENERAL SUBJECT DETECTOR (bird-specific hypothesis refuted): "
-                "obj plane ch4/19 significantly enriched inside camera-recorded "
-                "subject boxes over vehicle/person/animal/airplane content "
-                "(n=92 NEF AFInfo2 GT boxes vs permutation null, p<=0.005). "
-                "Firmware geometry suggests 10 class slots; class names not "
-                "published.",
+        "role": "動物偵測 (ANIMAL DETECTION): obj plane ch4/9/19 gated-cell "
+                "enrichment obs 0.32–0.36 vs null 0.11–0.15, p=0.0 (n=21 "
+                "animal/bird 3D-tracking, 157-head Try A expanded). Hit-rate "
+                "0.81, cover 0.69, centroid dist 38px — COARSE REVERSE VERY "
+                "ROBUST. Firmware geometry suggests 10 class slots; class "
+                "names not published.",
         "blocks": 709, "input": "384x256x3", "head": "24ch 16x30 (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "67e8ff4a578200a9a94f67b27bf49a9e5f29497180d980d71812b72d2457dd34": {
         "key": "z8-net6", "name": "NET6", "runnable": True, "decodable": False,
-        "role": "SUBJECT DETECTOR: obj plane ch3/16 significantly enriched "
-                "inside camera-recorded subject boxes (n=92 GT, p<=0.0025). "
-                "Firmware geometry suggests 8 class slots; class names not "
-                "published.",
+        "role": "主體偵測 (GENERAL SUBJECT DETECTION): obj plane ch3/16 p=0.0, "
+                "ch25 p=0.01, ch12 p=0.0125, ch22 p=0.02 (n=104 all-GT Try A "
+                "expanded, 157 heads). Hit-rate 0.9, cover 0.875, centroid dist "
+                "62px — STRONG. Firmware geometry suggests 8 class slots; class "
+                "names not published.",
         "blocks": 691, "input": "384x256x3", "head": "24ch 16x26 (axis-inferred)",
         "source": Z8_SOURCE,
     },
     "66a34f2456804699256b3c9d79da3bb241e2d5b617877b18948c37bdd898d32d": {
         "key": "z8-net7", "name": "NET7", "runnable": True, "decodable": False,
-        "role": "SUBJECT DETECTOR (earlier scene-classifier hypothesis "
-                "refuted): obj plane ch17/9/22 significantly enriched inside "
-                "camera-recorded subject boxes (n=92 GT, p<=0.0025). Firmware "
-                "geometry suggests 8 class slots; class names not published.",
+        "role": "面部眼睛偵測 (FACE/EYE DETECTION): ext2 obj plane ch17/9/22 "
+                "enriched inside general AF boxes (n=92 GT, p<=0.0025). "
+                "Face-priority-AF NEFs from 302 external samples all have "
+                "FaceNum=0 — face-specific GT validation pending; user must "
+                "shoot face-mode portraits. Firmware geometry suggests 8 class "
+                "slots; class names not published.",
         "blocks": 889, "input": "384x256x3", "head": "24ch 16x26 (axis-inferred)",
         "source": Z8_SOURCE,
     },
@@ -99,12 +102,13 @@ KNOWN_BODIES: dict[str, dict] = {
     },
     "fd35487517b86de748fd01b581b37a72bb33faefd0b1ac740a965eb70952ba2e": {
         "key": "z8-net9", "name": "NET9", "runnable": True, "decodable": False,
-        "role": "SUBJECT DETECTOR specialised for tracked subjects: obj plane "
-                "ch8 significantly enriched inside the camera's 3D-tracking "
-                "subject frames (n=43 GT, p=0.015) and AF frames (n=92, "
-                "p=0.02). Firmware geometry suggests 7 class slots; class "
-                "names not published. Deepest body (1044 blocks) with a "
-                "unique 2x2 pooling record family (handler hypothesis-level).",
+        "role": "多類別主體偵測 (MULTI-CLASS SUBJECT: 人/動物/車/雀鳥): obj plane "
+                "ch8 enrichment obs 0.157 vs null 0.107, p=0.11 (n=32 3D-tracking "
+                "Try A expanded) — directional only, not yet significant. "
+                "Hit-rate 0.38, centroid dist 85px. Needs more 3D-tracking NEFs. "
+                "Firmware geometry suggests 7 class slots; class names not "
+                "published. Deepest body (1044 blocks) with a unique 2x2 pooling "
+                "record family (handler hypothesis-level).",
         "blocks": 1044, "input": "384x256x3",
         "head": "24ch 16x24 (axis-inferred); unique 2x2 pooling record family",
         "source": Z8_SOURCE,

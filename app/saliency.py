@@ -1,14 +1,16 @@
 """Research-only saliency frames for Z8 NETs without a published decode contract.
 
 NET4/6/7/9 run inference but have no consumer table / rank anchors, so the
-decoder cannot emit candidate boxes. The external-sample study (Nov 2026,
-43 3D-tracking + 92 AF ground-truth boxes from NEF AFInfo2 tags vs a
-permutation null) found one objectness-like head0 plane per NET whose
-high-activation cells are significantly enriched inside the camera's own
-recorded subject boxes — significant in BOTH subject groups (p <= 0.005):
+decoder cannot emit candidate boxes. The Try A expanded study (Nov 2026,
+104 NEF AFInfo2 GT boxes from PhotographyBlog Z8/Z9/ZF/Z6III/Z5II + raw-files
+Z8/Z9 + user shots vs a 400-sample permutation null) confirms one objectness-like
+head0 plane per NET whose gated-cell membership is enriched inside the camera's
+own recorded subject boxes:
 
-    NET4 plane 4 (also 19)   NET6 plane 3 (also 9,16,17)
-    NET7 plane 17 (also 9,22)   NET9 plane 8 (also 1,13,19)
+    NET4 plane 4 (also 9,19)  n=21 animal/bird, p=0.0, hit 0.81, dist 38px
+    NET6 plane 3 (also 16,22,25)  n=104 all-GT, p=0.0, hit 0.9, dist 62px
+    NET7 plane 17 (also 9,22)  ext2 n=92 SIG p<=0.0025; face-specific GT pending
+    NET9 plane 8 (also 16)    n=32 3D-tracking, p=0.11 directional only
 
 We turn the activation map of that plane into ONE coarse bounding frame so the
 preview screen shows where the network is "looking". This is explicitly NOT
